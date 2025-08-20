@@ -41,7 +41,7 @@ export default function WatermarkClient({ ownerId }: Props) {
       const pages = pdfDoc.getPages()
       // Optional watermark text with page index
       const font = await pdfDoc.embedFont(StandardFonts.Helvetica)
-      let pngImage
+      let pngImage: any = null
       if (logo) {
         const bytes = Uint8Array.from(atob(logo.split(',')[1]), c => c.charCodeAt(0))
         try {
@@ -50,7 +50,7 @@ export default function WatermarkClient({ ownerId }: Props) {
           console.warn('Logo is not PNG, skipping.')
         }
       }
-      let qrImage
+      let qrImage: any = null
       if (qrText.trim().length > 0) {
         const qrDataUrl = await QRCode.toDataURL(qrText, { margin: 0, width: 256 })
         const bytes = Uint8Array.from(atob(qrDataUrl.split(',')[1]), c => c.charCodeAt(0))
