@@ -50,7 +50,7 @@ export async function getLink(id: string): Promise<LinkMeta | null> {
 }
 
 export async function listLinks(ownerId: string): Promise<LinkMeta[]> {
-  const ids = await kv.zrevrange<string[]>(`links:${ownerId}`, 0, 50)
+  const ids = await kv.zrange<string>(`links:${ownerId}`, 0, 50, { rev: true })
   const res: LinkMeta[] = []
   for (const id of ids || []) {
     const meta = await getLink(id)
@@ -67,7 +67,7 @@ export async function logAccess(linkId: string, event: AccessEvent) {
 
 export async function getAccesses(linkId: string, limit = 200): Promise<AccessEvent[]> {
   const key = `link:${linkId}:events`
-  const raws = await kv.zrevrange<string[]>(key, 0, limit-1)
+  const raws = await kv.zrange<string>(key, 0, limit - 1, { rev: true })
   if (!raws) return []
   return raws.map(r => JSON.parse(r))
 }
