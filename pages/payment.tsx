@@ -1,4 +1,6 @@
 import Layout from '../components/Layout'
+import type { GetServerSideProps } from 'next'
+import { getUserFromRequest } from '../lib/auth'
 
 export default function Payment() {
   const checkout = process.env.NEXT_PUBLIC_STRIPE_CHECKOUT_URL || '#'
@@ -11,4 +13,12 @@ export default function Payment() {
       </div>
     </Layout>
   )
+}
+
+export const getServerSideProps: GetServerSideProps = async ({ req }) => {
+  const user = getUserFromRequest(req as any)
+  if (!user) {
+    return { redirect: { destination: '/login', permanent: false } }
+  }
+  return { props: {} }
 }

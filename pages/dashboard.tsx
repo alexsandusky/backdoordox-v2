@@ -1,6 +1,8 @@
 
 import Layout from '../components/Layout'
 import Link from 'next/link'
+import type { GetServerSideProps } from 'next'
+import { getUserFromRequest } from '../lib/auth'
 
 export default function Home() {
   return (
@@ -32,4 +34,12 @@ export default function Home() {
       </div>
     </Layout>
   )
+}
+
+export const getServerSideProps: GetServerSideProps = async ({ req }) => {
+  const user = getUserFromRequest(req as any)
+  if (!user) {
+    return { redirect: { destination: '/login', permanent: false } }
+  }
+  return { props: {} }
 }
