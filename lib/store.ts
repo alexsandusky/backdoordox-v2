@@ -1,4 +1,3 @@
-
 import { kv } from '@vercel/kv'
 import { put, del } from '@vercel/blob'
 import { z } from 'zod'
@@ -46,10 +45,11 @@ export async function createLink(meta: Omit<LinkMeta, 'events'>) {
 
 export async function getLink(id: string): Promise<LinkMeta | null> {
   const raw = await kv.hgetall<LinkMeta>(`link:${id}`)
-  return raw as any || null
+  return (raw as any) || null
 }
 
 export async function listLinks(ownerId: string): Promise<LinkMeta[]> {
+  // NOTE: @vercel/kv uses zrange(..., { rev: true }) instead of zrevrange
   const ids = await kv.zrange<string>(`links:${ownerId}`, 0, 50, { rev: true })
   const res: LinkMeta[] = []
   for (const id of ids || []) {
@@ -69,7 +69,7 @@ export async function getAccesses(linkId: string, limit = 200): Promise<AccessEv
   const key = `link:${linkId}:events`
   const raws = await kv.zrange<string>(key, 0, limit - 1, { rev: true })
   if (!raws) return []
-  return raws.map(r => JSON.parse(r))
+  return raws.map(r => JSON.parse(r) as AccessEvent)
 }
 
 export async function deleteLink(link: LinkMeta) {
@@ -81,7 +81,11 @@ export async function deleteLink(link: LinkMeta) {
 
 export type UploadResult = { fileId: string, filename: string, url: string }
 export async function savePDF(ownerId: string, filename: string, buf: Buffer): Promise<UploadResult> {
-  const putRes = await put(`pdfs/${ownerId}/${Date.now()}-${filename}`, buf, { contentType: 'application/pdf', access: 'public' })
+  // Public for MVP demo; switch to 'private' + signed URLs later
+  const putRes = await put(`pdfs/${ownerId}/${Date.now()}-${filename}`, buf, {
+    contentType: 'application/pdf',
+    access: 'public',
+  })
   const fileId = putRes.pathname
   return { fileId, filename, url: putRes.url }
 }
