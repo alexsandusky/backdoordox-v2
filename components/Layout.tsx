@@ -21,7 +21,10 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             <Tab href="/api">API</Tab>
             <Tab href="/payment">Payment</Tab>
           </nav>
-          <Link href="/login" className="btn btn-outline">Login</Link>
+          <div className="flex items-center gap-2">
+            <Link href="/login" className="btn btn-outline">Login</Link>
+            <Link href="/login?mode=signup" className="btn btn-primary">Sign up</Link>
+          </div>
           <div className="text-sm text-gray-500">MVP</div>
         </div>
       </header>

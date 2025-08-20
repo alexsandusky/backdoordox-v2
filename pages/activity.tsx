@@ -1,6 +1,8 @@
 
 import Layout from '../components/Layout'
 import useSWR from 'swr'
+import type { GetServerSideProps } from 'next'
+import { getUserFromRequest } from '../lib/auth'
 
 const fetcher = (url:string) => fetch(url).then(r=>r.json())
 
@@ -39,4 +41,12 @@ export default function Activity() {
       </div>
     </Layout>
   )
+}
+
+export const getServerSideProps: GetServerSideProps = async ({ req }) => {
+  const user = getUserFromRequest(req as any)
+  if (!user) {
+    return { redirect: { destination: '/login', permanent: false } }
+  }
+  return { props: {} }
 }
