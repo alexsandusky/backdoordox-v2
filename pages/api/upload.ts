@@ -2,6 +2,8 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { savePDF, createLink } from '../../lib/store'
 import { randomUUID } from 'crypto'
+import { getUserFromRequest } from '../../lib/auth'
+import { requireEnv } from '../../lib/env'
 
 export const config = {
   api: { bodyParser: false }
@@ -44,9 +46,12 @@ function parseForm(req: NextApiRequest): Promise<{buffer: Buffer, filename: stri
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return res.status(405).end()
+  if (!requireEnv(res, ['KV_REST_API_URL', 'KV_REST_API_TOKEN', 'BLOB_READ_WRITE_TOKEN', 'JWT_SECRET', 'NEXT_PUBLIC_APP_URL'])) return
+  const user = getUserFromRequest(req as any)
+  if (!user) return res.status(401).json({ ok: false, error: 'Unauthorized' })
   try {
     const { buffer, filename, fields } = await parseForm(req)
-    const ownerId = fields['ownerId'] || 'anon'
+    const ownerId = user.id
     const saved = await savePDF(ownerId, filename, buffer)
     const linkId = randomUUID().slice(0, 8)
     const link = await createLink({
