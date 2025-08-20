@@ -9,6 +9,7 @@ export default function ViewerGate() {
   const router = useRouter()
   const { id } = router.query as { id: string }
   const [email, setEmail] = useState('')
+  const [error, setError] = useState('')
   const [allowed, setAllowed] = useState(false)
   const [meta, setMeta] = useState<any>(null)
   const fp = useDeviceFingerprint()
@@ -23,10 +24,14 @@ export default function ViewerGate() {
     return m ? m[1] : ''
   }, [email])
 
-  const isBusiness = email.includes('@') && !FREE_DOMAINS.includes(businessDomain)
+  const blockedDomain = email.includes('@') && FREE_DOMAINS.includes(businessDomain)
+  const isBusiness = email.includes('@') && !blockedDomain
 
   async function proceed() {
-    if (!isBusiness) { alert('Please use a business email.'); return }
+    if (!isBusiness) {
+      setError(blockedDomain ? 'Personal email domains are not allowed.' : 'Please use your business email address.')
+      return
+    }
     await fetch('/api/log-access', { method:'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ linkId: id, email, fingerprint: fp }) })
     setAllowed(true)
   }
@@ -41,13 +46,26 @@ export default function ViewerGate() {
           <div className="font-medium">{meta.filename}</div>
           <div className="text-xs text-gray-500">Expires: {meta.expiresAt ? new Date(meta.expiresAt).toLocaleDateString() : '—'} • Lender: {meta.lender || '—'}</div>
         </div>
-        <label className="label">Business Email Address</label>
-        <input className="input" placeholder="your.name@company.com" value={email} onChange={e=>setEmail(e.target.value)} />
-        <div className="hint mt-2">Personal email addresses are rejected. Every access attempt is logged — domain, IP, time, and device fingerprint.</div>
-        <button onClick={proceed} className="btn btn-primary mt-4">Access Document</button>
+          <label className="label">Business Email Address</label>
+          <input
+            className="input"
+            placeholder="your.name@company.com"
+            value={email}
+            onChange={e => {
+              const value = e.target.value
+              setEmail(value)
+              const m = value.toLowerCase().match(/@([^@]+)$/)
+              const d = m ? m[1] : ''
+              setError(FREE_DOMAINS.includes(d) ? 'Personal email domains are not allowed.' : '')
+            }}
+          />
+          <div className="hint mt-2">Personal domains (gmail, yahoo, etc.) are blocked.</div>
+          {error && <div className="text-sm text-red-600 mt-1">{error}</div>}
+          <div className="hint mt-2">Every access attempt is logged — domain, IP, time, and device fingerprint.</div>
+          <button onClick={proceed} className="btn btn-primary mt-4">Access Document</button>
+        </div>
       </div>
-    </div>
-  )
+    )
 
   const fileUrl = `/api/stream?id=${id}`
   return (
