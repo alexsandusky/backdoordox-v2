@@ -50,7 +50,12 @@ export async function getLink(id: string): Promise<LinkMeta | null> {
 
 export async function listLinks(ownerId: string): Promise<LinkMeta[]> {
   // NOTE: @vercel/kv uses zrange(..., { rev: true }) instead of zrevrange
-  const ids = await kv.zrange<string>(`links:${ownerId}`, 0, 50, { rev: true })
+  // BEFORE
+// const ids = await kv.zrange<string>(`links:${ownerId}`, 0, 50, { rev: true })
+
+// AFTER
+const ids = (await kv.zrange(`links:${ownerId}`, 0, 50, { rev: true })) as string[];
+
   const res: LinkMeta[] = []
   for (const id of ids || []) {
     const meta = await getLink(id)
@@ -67,7 +72,12 @@ export async function logAccess(linkId: string, event: AccessEvent) {
 
 export async function getAccesses(linkId: string, limit = 200): Promise<AccessEvent[]> {
   const key = `link:${linkId}:events`
-  const raws = await kv.zrange<string>(key, 0, limit - 1, { rev: true })
+  // BEFORE
+// const raws = await kv.zrange<string>(key, 0, limit - 1, { rev: true })
+
+// AFTER
+const raws = (await kv.zrange(key, 0, limit - 1, { rev: true })) as string[];
+
   if (!raws) return []
   return raws.map(r => JSON.parse(r) as AccessEvent)
 }
