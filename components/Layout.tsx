@@ -14,12 +14,15 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       <header className="bg-white border-b">
         <div className="container py-4 flex items-center gap-4">
           <Link href="/" className="text-xl font-semibold">BackdoorDox</Link>
-          <nav className="flex items-center gap-2">
+          <nav className="flex items-center gap-2 flex-1">
+            <Tab href="/dashboard">Dashboard</Tab>
             <Tab href="/watermark">Watermark</Tab>
             <Tab href="/activity">Activity</Tab>
             <Tab href="/api">API</Tab>
+            <Tab href="/payment">Payment</Tab>
           </nav>
-          <div className="ml-auto text-sm text-gray-500">MVP</div>
+          <Link href="/login" className="btn btn-outline">Login</Link>
+          <div className="text-sm text-gray-500">MVP</div>
         </div>
       </header>
       <main className="container py-8 space-y-6">{children}</main>
