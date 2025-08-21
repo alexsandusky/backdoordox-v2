@@ -35,22 +35,31 @@ function buildHeaders(filename: string) {
 export default async function handler(req: NextApiRequest, res: NextApiResponse<MetaResult>) {
   if (!requireEnv(res, ['KV_REST_API_URL', 'KV_REST_API_TOKEN'])) return
   const id = req.query.id as string
-  if (!id) return res.status(400).json({ ok: false, id: '', error: 'id required' })
+  if (!id) {
+    res.status(200).json({ ok: false, id: '', error: 'id required' })
+    return
+  }
   const link = await getLink(id)
-  if (!link) return res.status(404).json({ ok: false, id, error: 'not found' })
+  if (!link) {
+    res.status(200).json({ ok: false, id, error: 'not found' })
+    return
+  }
   const headers = buildHeaders(link.filename)
   const storage = link.blobUrl.startsWith('file://') ? 'tmp' : 'blob'
   try {
     if (storage === 'tmp') {
       const stat = await fs.stat(link.blobUrl.replace('file://', ''))
-      return res.json({ ok: true, id, storage, filename: link.filename, size: stat.size, hasRange: true, headers, source: 'tmp' })
+      headers['Content-Length'] = String(stat.size)
+      res.status(200).json({ ok: true, id, storage, filename: link.filename, size: stat.size, hasRange: true, headers, source: 'tmp' })
+      return
     }
     const head = await fetch(link.blobUrl, { method: 'HEAD' })
     if (!head.ok) throw new Error('failed to head blob')
     const size = Number(head.headers.get('content-length')) || 0
-    return res.json({ ok: true, id, storage, filename: link.filename, size, hasRange: true, headers, source: 'blob' })
+    headers['Content-Length'] = String(size)
+    res.status(200).json({ ok: true, id, storage, filename: link.filename, size, hasRange: true, headers, source: 'blob' })
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'unknown error'
-    res.json({ ok: false, id, storage, filename: link.filename, error: msg, note: 'failed to read source', headers })
+    res.status(200).json({ ok: false, id, storage, filename: link.filename, error: msg, note: 'failed to read source', headers })
   }
 }

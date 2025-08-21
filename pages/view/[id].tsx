@@ -6,8 +6,11 @@ import type { GetServerSideProps } from 'next'
 
 const FREE_DOMAINS = ['gmail.com','yahoo.com','hotmail.com','outlook.com','aol.com','icloud.com','proton.me','protonmail.com','pm.me','zoho.com','gmx.com']
 
-class ViewerErrorBoundary extends React.Component<React.PropsWithChildren<{}>, { hasError: boolean }> {
-  constructor(props: React.PropsWithChildren<{}>) {
+class ViewerErrorBoundary extends React.Component<
+  React.PropsWithChildren<{ fileUrl: string }>,
+  { hasError: boolean }
+> {
+  constructor(props: React.PropsWithChildren<{ fileUrl: string }>) {
     super(props)
     this.state = { hasError: false }
   }
@@ -19,18 +22,31 @@ class ViewerErrorBoundary extends React.Component<React.PropsWithChildren<{}>, {
   }
   render() {
     if (this.state.hasError) {
+      const { fileUrl } = this.props
       return (
         <div className="container py-6">
           <div className="card text-center">
-            <div className="text-red-600 mb-2">Something went wrong.</div>
-            <button
-              className="link"
-              onClick={() => {
-                if (typeof window !== 'undefined') window.location.reload()
-              }}
-            >
-              Retry
-            </button>
+            <div className="text-red-600 mb-2">Viewer failed to load.</div>
+            <div className="flex items-center justify-center gap-4">
+              <button
+                className="link"
+                onClick={() => {
+                  if (typeof window !== 'undefined') window.location.reload()
+                }}
+              >
+                Retry
+              </button>
+              <button
+                className="link"
+                onClick={() => {
+                  if (typeof window !== 'undefined') {
+                    window.open(fileUrl, '_blank', 'noopener')
+                  }
+                }}
+              >
+                Open Securely
+              </button>
+            </div>
           </div>
         </div>
       )
@@ -39,9 +55,8 @@ class ViewerErrorBoundary extends React.Component<React.PropsWithChildren<{}>, {
   }
 }
 
-function ViewerInner() {
+function ViewerInner({ id, fileUrl }: { id: string; fileUrl: string }) {
   const router = useRouter()
-  const { id } = router.query as { id: string }
   const [email, setEmail] = useState('')
   const [error, setError] = useState('')
   const [allowed, setAllowed] = useState(false)
@@ -51,25 +66,34 @@ function ViewerInner() {
     storage?: string
     filename?: string
     size?: number
+    hasRange?: boolean
     headers?: Record<string, string>
     source?: 'blob' | 'tmp'
     error?: string
   }
   const [meta, setMeta] = useState<LinkMeta | null>(null)
   const [diag, setDiag] = useState<Diag | null>(null)
+  const [diagStatus, setDiagStatus] = useState<number | null>(null)
+  const [debugOpen, setDebugOpen] = useState(false)
   const [streamError, setStreamError] = useState('')
   const [streamReady, setStreamReady] = useState(false)
-  const [embedError, setEmbedError] = useState(false)
+  const [inlineFailed, setInlineFailed] = useState(false)
   const frameRef = useRef<HTMLIFrameElement>(null)
   const fp = useDeviceFingerprint()
 
-  useEffect(()=>{
+  useEffect(() => {
     if (!id) return
     fetch('/api/get-link?id=' + id)
       .then(r => r.json() as Promise<LinkMeta>)
       .then(setMeta)
       .catch(() => {})
   }, [id])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const params = new URLSearchParams(window.location.search)
+    setDebugOpen(params.get('debug') === '1')
+  }, [])
 
   const businessDomain = useMemo(() => {
     const m = email.toLowerCase().match(/@([^@]+)$/)
@@ -119,8 +143,6 @@ function ViewerInner() {
       </div>
     )
 
-  const fileUrl = `/api/stream/${id}`
-
   useEffect(() => {
     if (!allowed) return
     setStreamError('')
@@ -143,8 +165,11 @@ function ViewerInner() {
   useEffect(() => {
     if (!allowed) return
     fetch(`/api/stream/meta?id=${id}`)
-      .then(r => r.json() as Promise<Diag>)
-      .then(setDiag)
+      .then(async r => {
+        setDiagStatus(r.status)
+        const data = (await r.json()) as Diag
+        setDiag(data)
+      })
       .catch(() => {})
   }, [allowed, id])
 
@@ -167,38 +192,49 @@ function ViewerInner() {
 
   if (!streamReady) return <div className="container py-10"><div className="card">Loading…</div></div>
 
-  const cannotEmbed = embedError || (diag && diag.ok === false)
+  const cannotEmbed = inlineFailed || (diag && diag.ok === false)
 
   return (
     <div className="container py-6">
       <div className="card">
-        <div className="mb-3 text-sm text-gray-600">Viewing: <span className="font-medium">{meta.filename}</span></div>
+        <div className="mb-3 flex items-center justify-between text-sm text-gray-600">
+          <div>Viewing: <span className="font-medium">{meta.filename}</span></div>
+          <button
+            className="btn btn-primary btn-sm"
+            onClick={() => {
+              if (typeof window !== 'undefined') {
+                window.open(fileUrl, '_blank', 'noopener')
+              }
+            }}
+          >
+            Open Securely
+          </button>
+        </div>
         <div className="w-full overflow-auto">
           {!cannotEmbed ? (
             <iframe
               ref={frameRef}
               src={fileUrl}
               className="w-full min-h-[72vh] rounded-xl border"
-              onError={() => setEmbedError(true)}
+              onError={() => setInlineFailed(true)}
               onLoad={() => {
                 if (typeof window === 'undefined') return
                 window.setTimeout(() => {
                   const iframe = frameRef.current
                   if (!iframe) return
                   try {
-                    const doc = iframe.contentDocument
-                    if (!doc || doc.body?.childElementCount === 0) {
-                      setEmbedError(true)
+                    if ((iframe.contentWindow?.length || 0) === 0) {
+                      setInlineFailed(true)
                     }
                   } catch {
-                    setEmbedError(true)
+                    setInlineFailed(true)
                   }
-                }, 500)
+                }, 800)
               }}
             />
           ) : (
             <div className="flex items-center justify-between p-2 text-sm bg-gray-50 border rounded">
-              <span>Can’t render inline. Open the document in a new tab.</span>
+              <span>Inline viewer failed. Use Open Securely to view in a new tab.</span>
               <button
                 className="btn btn-primary btn-sm"
                 onClick={() => {
@@ -212,20 +248,28 @@ function ViewerInner() {
             </div>
           )}
         </div>
-        <details className="mt-3 text-xs">
+        <details className="mt-3 text-xs" open={debugOpen}>
           <summary className="cursor-pointer select-none">Diagnostics</summary>
           {diag ? (
-            <div className="mt-2 space-y-1">
-              <div>Status: {diag.ok ? 'ok' : `error${diag.error ? ` - ${diag.error}` : ''}`}</div>
-              {diag.storage && <div>Storage: {diag.storage}</div>}
-              {diag.filename && <div>Filename: {diag.filename}</div>}
-              {typeof diag.size === 'number' && <div>Size: {diag.size}</div>}
-              {diag.headers && (
-                <div>
-                  Headers:
-                  <pre className="mt-1 whitespace-pre-wrap">{JSON.stringify(diag.headers, null, 2)}</pre>
-                </div>
-              )}
+            <div className="mt-2">
+              <table className="border-collapse text-left">
+                <tbody>
+                  <tr><td className="pr-2">status</td><td>{diagStatus ?? 'unknown'}</td></tr>
+                  <tr><td className="pr-2">ok</td><td>{String(diag.ok)}</td></tr>
+                  {diag.storage && <tr><td className="pr-2">storage</td><td>{diag.storage}</td></tr>}
+                  {diag.filename && <tr><td className="pr-2">filename</td><td>{diag.filename}</td></tr>}
+                  {typeof diag.size === 'number' && <tr><td className="pr-2">size</td><td>{diag.size}</td></tr>}
+                  {typeof diag.hasRange === 'boolean' && <tr><td className="pr-2">hasRange</td><td>{String(diag.hasRange)}</td></tr>}
+                  {diag.headers && (
+                    <>
+                      {['Content-Type','Content-Disposition','Cache-Control','X-Frame-Options','Accept-Ranges','Content-Length'].map(h => (
+                        <tr key={h}><td className="pr-2">{h}</td><td>{diag.headers?.[h]}</td></tr>
+                      ))}
+                    </>
+                  )}
+                  {diag.error && <tr><td className="pr-2">error</td><td className="text-red-600">{diag.error}</td></tr>}
+                </tbody>
+              </table>
             </div>
           ) : (
             <div className="mt-2">Loading…</div>
@@ -238,9 +282,23 @@ function ViewerInner() {
 }
 
 export default function ViewerGate() {
+  const router = useRouter()
+  const rawId = router.query.id
+  const id = typeof rawId === 'string' ? rawId : Array.isArray(rawId) ? rawId[0] : ''
+  if (!id) {
+    return (
+      <div className="container py-10">
+        <div className="card text-center">
+          <div className="mb-4">Invalid document link.</div>
+          <a href="/" className="link">Go back</a>
+        </div>
+      </div>
+    )
+  }
+  const fileUrl = `/api/stream/${id}`
   return (
-    <ViewerErrorBoundary>
-      <ViewerInner />
+    <ViewerErrorBoundary fileUrl={fileUrl}>
+      <ViewerInner id={id} fileUrl={fileUrl} />
     </ViewerErrorBoundary>
   )
 }

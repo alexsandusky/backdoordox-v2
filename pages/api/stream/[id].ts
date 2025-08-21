@@ -9,6 +9,8 @@ export const config = {
   api: { bodyParser: false, responseLimit: false },
 }
 
+export const runtime = 'nodejs'
+
 function buildHeaders(filename: string) {
   const safe = (filename || 'document.pdf').replace(/[^\w.-]/g, '_')
   const name = safe.endsWith('.pdf') ? safe : safe + '.pdf'
@@ -45,26 +47,31 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const headers = buildHeaders(link.filename)
   for (const [k, v] of Object.entries(headers)) res.setHeader(k, v)
 
-  if (link.blobUrl.startsWith('file://')) {
+  const storage = link.blobUrl.startsWith('file://') ? 'tmp' : 'blob'
+
+  if (storage === 'tmp') {
     const filePath = link.blobUrl.replace('file://', '')
     let stat
     try { stat = await fs.promises.stat(filePath) } catch { return res.status(404).json({ error: 'not found' }) }
     const size = stat.size
+    const rangeHeader = req.headers.range
     if (req.method === 'HEAD') {
       res.status(200).setHeader('Content-Length', size).end()
+      console.log(`[stream] id=${id} storage=${storage} range=${rangeHeader || 'full'} size=${size} status=200`)
       return
     }
-    const rangeHeader = req.headers.range
     const range = rangeHeader ? parseRange(rangeHeader, size) : null
     if (range) {
       const { start, end } = range
       res.status(206)
       res.setHeader('Content-Range', `bytes ${start}-${end}/${size}`)
       res.setHeader('Content-Length', end - start + 1)
+      console.log(`[stream] id=${id} storage=${storage} range=${start}-${end} size=${size} status=206`)
       fs.createReadStream(filePath, { start, end }).pipe(res)
     } else {
       res.status(200)
       res.setHeader('Content-Length', size)
+      console.log(`[stream] id=${id} storage=${storage} range=full size=${size} status=200`)
       fs.createReadStream(filePath).pipe(res)
     }
     return
@@ -74,11 +81,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const head = await fetch(link.blobUrl, { method: 'HEAD' })
   if (!head.ok) return res.status(502).json({ error: 'failed to fetch' })
   const size = Number(head.headers.get('content-length')) || 0
+  const rangeHeader = req.headers.range
   if (req.method === 'HEAD') {
     res.status(200).setHeader('Content-Length', size).end()
+    console.log(`[stream] id=${id} storage=${storage} range=${rangeHeader || 'full'} size=${size} status=200`)
     return
   }
-  const rangeHeader = req.headers.range
   const range = rangeHeader ? parseRange(rangeHeader, size) : null
   let blobRes: Response
   if (range) {
@@ -88,11 +96,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     res.status(206)
     res.setHeader('Content-Range', `bytes ${start}-${end}/${size}`)
     res.setHeader('Content-Length', end - start + 1)
+    console.log(`[stream] id=${id} storage=${storage} range=${start}-${end} size=${size} status=206`)
   } else {
     blobRes = await fetch(link.blobUrl)
     if (!blobRes.ok || !blobRes.body) return res.status(502).json({ error: 'failed to fetch' })
     res.status(200)
     res.setHeader('Content-Length', size)
+    console.log(`[stream] id=${id} storage=${storage} range=full size=${size} status=200`)
   }
   Readable.fromWeb(blobRes.body as ReadableStream).pipe(res)
 }
