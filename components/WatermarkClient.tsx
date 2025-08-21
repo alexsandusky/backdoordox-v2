@@ -166,7 +166,14 @@ export default function WatermarkClient() {
     )
     const upload = await fetch('/api/upload', { method: 'POST', body: form })
     if (!upload.ok) {
-      log('Upload failed')
+      let message = 'Upload failed'
+      try {
+        const err = await upload.json()
+        message = err.error || message
+      } catch {
+        // ignore
+      }
+      log(message)
       return
     }
     const data = await upload.json()

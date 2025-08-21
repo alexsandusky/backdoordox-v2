@@ -3,6 +3,8 @@ import type { NextApiRequest, NextApiResponse } from 'next'
 import { getLink } from '../../lib/store'
 import { requireEnv } from '../../lib/env'
 import https from 'https'
+import fs from 'fs'
+import { fileURLToPath } from 'url'
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!requireEnv(res, ['KV_REST_API_URL', 'KV_REST_API_TOKEN'])) return
@@ -20,9 +22,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   res.setHeader('Referrer-Policy', 'no-referrer')
   res.setHeader('X-Robots-Tag', 'noindex, nofollow')
   res.setHeader('Content-Type', 'application/pdf')
-  https.get(url, r => {
-    r.pipe(res)
-  }).on('error', (e)=>{
-    res.status(500).end('failed to fetch')
-  })
+  if (url.startsWith('file://')) {
+    const filePath = fileURLToPath(url)
+    const stream = fs.createReadStream(filePath)
+    stream.on('error', () => res.status(500).end('failed to fetch'))
+    stream.pipe(res)
+  } else {
+    https.get(url, r => {
+      r.pipe(res)
+    }).on('error', () => {
+      res.status(500).end('failed to fetch')
+    })
+  }
 }
