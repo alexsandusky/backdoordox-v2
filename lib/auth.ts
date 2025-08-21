@@ -4,6 +4,7 @@ import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
 import { kv } from '@vercel/kv'
 import type { NextApiRequest, NextApiResponse } from 'next'
+import { sanitizeForKv } from './kv'
 
 export type User = {
   id: string
@@ -26,9 +27,9 @@ function apiKeyKey(key: string) {
 }
 
 export async function getUser(email: string): Promise<User | null> {
-  const data = await kv.hgetall<User>(userKey(email)) as any
+  const data = await kv.hgetall<User>(userKey(email))
   if (!data || !data.email) return null
-  return { ...data, confirmedAt: (data as any).confirmedAt || undefined }
+  return data
 }
 
 export async function registerUser(email: string, password: string): Promise<{ user: User; token: string }> {
@@ -42,7 +43,7 @@ export async function registerUser(email: string, password: string): Promise<{ u
     plan: 'free',
     apiKey: crypto.randomBytes(16).toString('hex'),
   }
-  await kv.hset(userKey(email), user)
+  await kv.hset(userKey(email), sanitizeForKv(user))
   await kv.set(apiKeyKey(user.apiKey), user.email)
   const token = crypto.randomBytes(32).toString('hex')
   await kv.set(`confirm:${token}`, user.email, { ex: 60 * 60 * 24 })

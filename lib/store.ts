@@ -1,6 +1,7 @@
 import { kv } from '@vercel/kv'
 import { put, del } from '@vercel/blob'
 import { z } from 'zod'
+import { sanitizeForKv } from './kv'
 
 export type LinkMeta = {
   id: string
@@ -38,14 +39,14 @@ const LinkSchema = z.object({
 
 export async function createLink(meta: Omit<LinkMeta, 'events'>) {
   const parsed = LinkSchema.parse({ ...meta, events: 0 })
-  await kv.hset(`link:${parsed.id}`, parsed as any)
+  await kv.hset(`link:${parsed.id}`, sanitizeForKv(parsed))
   await kv.zadd(`links:${parsed.ownerId}`, { score: parsed.createdAt, member: parsed.id })
   return parsed
 }
 
 export async function getLink(id: string): Promise<LinkMeta | null> {
   const raw = await kv.hgetall<LinkMeta>(`link:${id}`)
-  return (raw as any) || null
+  return raw ?? null
 }
 
 export async function listLinks(ownerId: string): Promise<LinkMeta[]> {

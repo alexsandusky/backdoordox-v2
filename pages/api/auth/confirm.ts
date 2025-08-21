@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { kv } from '@vercel/kv'
 import { requireEnv } from '../../../lib/env'
+import { sanitizeForKv } from '../../../lib/kv'
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return res.status(405).end()
@@ -12,7 +13,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     res.status(400).end('Invalid or expired token')
     return
   }
-  await kv.hset(`user:${email}`, { confirmedAt: new Date().toISOString() } as any)
+  await kv.hset(`user:${email}`, sanitizeForKv({ confirmedAt: new Date() }))
   await kv.del(`confirm:${token}`)
   await kv.del(`confirm-email:${email}`)
   res.setHeader('Content-Type', 'text/html; charset=utf-8')

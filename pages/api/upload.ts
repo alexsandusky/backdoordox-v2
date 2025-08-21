@@ -54,6 +54,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const ownerId = user.id
     const saved = await savePDF(ownerId, filename, buffer)
     const linkId = randomUUID().slice(0, 8)
+    const lender = (fields['lender'] || fields['qr'] || '').trim()
+    const expires = fields['expiresAt'] ? Number(fields['expiresAt']) : undefined
     const link = await createLink({
       id: linkId,
       fileId: saved.fileId,
@@ -61,11 +63,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       blobUrl: saved.url,
       createdAt: Date.now(),
       ownerId,
-      lender: fields['qr'] || undefined,
+      ...(lender ? { lender } : {}),
+      ...(expires ? { expiresAt: expires } : {}),
     })
     const viewerUrl = `${process.env.NEXT_PUBLIC_APP_URL || ''}/view/${link.id}`
     res.json({ ok: true, viewerUrl })
   } catch (e:any) {
-    res.status(500).json({ ok:false, error: e.message })
+    res.status(500).json({ ok:false, error: `KV write failed: ${e.message}` })
   }
 }
