@@ -26,7 +26,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
     const entries = jobs.map(() => ({ score: now, member: randomUUID() }))
     for (const entry of entries) {
-      await kv.zadd(rlKey, entry as any)
+      await kv.zadd(rlKey, entry)
     }
     if (entries.length) await kv.expire(rlKey, 60)
 
@@ -39,6 +39,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const buf = Buffer.from(await resp.arrayBuffer())
       const saved = await savePDF(user.id, filename, buf)
       const linkId = randomUUID().slice(0,8)
+      const lenderStr = typeof lender === 'string' ? lender.trim() : ''
+      const rawExpires = typeof expiresAt === 'number' ? expiresAt : typeof expiresAt === 'string' ? Number(expiresAt) : undefined
+      const expires = Number.isFinite(rawExpires) ? rawExpires : undefined
       await createLink({
         id: linkId,
         fileId: saved.fileId,
@@ -46,14 +49,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         blobUrl: saved.url,
         createdAt: Date.now(),
         ownerId: user.id,
-        lender,
-        expiresAt,
+        ...(lenderStr ? { lender: lenderStr } : {}),
+        ...(expires ? { expiresAt: expires } : {}),
       })
       const viewerUrl = `${process.env.NEXT_PUBLIC_APP_URL || ''}/view/${linkId}`
       results.push({ filename: saved.filename, url: viewerUrl })
     }
     res.json({ ok: true, results })
   } catch (e: any) {
-    res.status(500).json({ ok:false, error:e.message })
+    res.status(500).json({ ok:false, error:`KV write failed: ${e.message}` })
   }
 }

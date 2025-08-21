@@ -3,6 +3,7 @@ import Stripe from 'stripe'
 import { kv } from '@vercel/kv'
 import { Readable } from 'stream'
 import { requireEnv } from '../../../lib/env'
+import { sanitizeForKv } from '../../../lib/kv'
 
 export const config = { api: { bodyParser: false } }
 
@@ -32,7 +33,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   switch (event.type) {
     case 'checkout.session.completed': {
       const email = (event.data.object as any).customer_email
-      if (email) await kv.hset(`user:${email.toLowerCase()}`, { plan: 'pro' })
+      if (email) await kv.hset(`user:${email.toLowerCase()}`, sanitizeForKv({ plan: 'pro' }))
       break
     }
     case 'customer.subscription.deleted':
@@ -45,7 +46,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           const email = (customer as any).email
           if (email) {
             const plan = subscription.status === 'active' ? 'pro' : 'free'
-            await kv.hset(`user:${email.toLowerCase()}`, { plan })
+            await kv.hset(`user:${email.toLowerCase()}`, sanitizeForKv({ plan }))
           }
         }
       } catch {}
