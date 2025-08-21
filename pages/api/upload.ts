@@ -68,7 +68,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     })
     const viewerUrl = `${process.env.NEXT_PUBLIC_APP_URL || ''}/view/${link.id}`
     res.json({ ok: true, viewerUrl })
-  } catch (e:any) {
-    res.status(500).json({ ok:false, error: `KV write failed: ${e.message}` })
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Upload failed'
+    res.status(500).json({ ok: false, error: msg })
   }
 }

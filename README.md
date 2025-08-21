@@ -35,7 +35,7 @@ pnpm dev # http://localhost:3000
 - `/watermark` performs watermarking **in the browser** and offers both:
   - **Download** of the watermarked PDF
   - **Upload** to server (`/api/upload`) → stored in **Vercel Blob** → a viewer link is created
-- `/view/[id]` enforces **business email** gate, logs access to **Vercel KV**, then renders an `<iframe>` streaming the PDF from `/api/stream?id=...` with toolbar hidden.
+- `/view/[id]` enforces **business email** gate, logs access to **Vercel KV**, then renders an `<iframe>` streaming the PDF from `/api/stream/<id>` with toolbar hidden.
 - `/activity` lists your links with **basic risk** flags.
 
 ## 4) Notes on OCR
