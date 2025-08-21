@@ -41,6 +41,7 @@ export default function Activity() {
               <th className="py-2 pr-4">Events</th>
               <th className="py-2 pr-4">Created</th>
               <th className="py-2 pr-4">Risk</th>
+              <th className="py-2 pr-4">Last View</th>
               <th className="py-2 pr-4">Link</th>
             </tr>
           </thead>
@@ -60,6 +61,17 @@ export default function Activity() {
                       </span>
                     )}
                   </div>
+                </td>
+                <td className="py-2 pr-4 text-xs">
+                  {l.last ? (
+                    <span>
+                      {l.last.token && <span title="via token">✓ token </span>}
+                      {l.last.ip || '-'}
+                      {l.last.fpHash && ` (${l.last.fpHash.slice(0, 12)})`}
+                    </span>
+                  ) : (
+                    '-'
+                  )}
                 </td>
                 <td className="py-2 pr-4">
                   <div className="flex gap-2">

@@ -41,7 +41,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     links.map(async l => {
       const events = await getAccesses(l.id, 200)
       const { score, reasons } = computeRisk(events)
-      return { ...l, risk: score, flags: reasons }
+      return { ...l, risk: score, flags: reasons, last: events[0] || null }
     })
   )
   res.json({ links: withRisk })

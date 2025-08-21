@@ -22,7 +22,11 @@ export type AccessEvent = {
   country?: string
   ua?: string
   email?: string
-  fingerprint?: string
+  fpHash?: string
+  tz?: string
+  screen?: string
+  succeeded?: boolean
+  token?: boolean
 }
 
 const LinkSchema = z.object({

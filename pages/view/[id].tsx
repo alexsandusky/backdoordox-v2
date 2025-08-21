@@ -55,11 +55,13 @@ class ViewerErrorBoundary extends React.Component<
   }
 }
 
-function ViewerInner({ id, fileUrl }: { id: string; fileUrl: string }) {
+function ViewerInner({ id }: { id: string }) {
   const router = useRouter()
   const [email, setEmail] = useState('')
   const [error, setError] = useState('')
   const [allowed, setAllowed] = useState(false)
+  const [st, setSt] = useState('')
+  const [iframeSrc, setIframeSrc] = useState('')
   type LinkMeta = { filename: string; expiresAt?: number; lender?: string }
   type Diag = {
     ok: boolean
@@ -108,8 +110,28 @@ function ViewerInner({ id, fileUrl }: { id: string; fileUrl: string }) {
       setError(blockedDomain ? 'Personal email domains are not allowed.' : 'Please use your business email address.')
       return
     }
-    await fetch('/api/log-access', { method:'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ linkId: id, email, fingerprint: fp }) })
-    setAllowed(true)
+    try {
+      const ua = navigator.userAgent
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone
+      const screenInfo = `${screen.width}x${screen.height}`
+      const tokenRes = await fetch('/api/stream/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, email, lender: meta?.lender, fpHash: fp, ua, tz, screen: screenInfo }),
+      })
+      const tokenData = await tokenRes.json()
+      if (!tokenRes.ok || !tokenData.st) throw new Error('token')
+      await fetch('/api/log-access', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ linkId: id, email, fpHash: fp, userAgent: ua, tz, screen: screenInfo, succeeded: true, token: true }),
+      })
+      setSt(tokenData.st)
+      setIframeSrc(`/api/stream/${id}?st=${tokenData.st}`)
+      setAllowed(true)
+    } catch {
+      setError('Failed to verify access.')
+    }
   }
 
   if (!meta) return <div className="container py-10"><div className="card">Loading…</div></div>
@@ -144,9 +166,9 @@ function ViewerInner({ id, fileUrl }: { id: string; fileUrl: string }) {
     )
 
   useEffect(() => {
-    if (!allowed) return
+    if (!allowed || !iframeSrc) return
     setStreamError('')
-    fetch(fileUrl, { method: 'HEAD' })
+    fetch(iframeSrc, { method: 'HEAD' })
       .then(async r => {
         if (!r.ok) {
           let msg = 'Failed to load document.'
@@ -160,7 +182,7 @@ function ViewerInner({ id, fileUrl }: { id: string; fileUrl: string }) {
         }
       })
       .catch(() => setStreamError('Failed to load document.'))
-  }, [allowed, fileUrl])
+  }, [allowed, iframeSrc])
 
   useEffect(() => {
     if (!allowed) return
@@ -195,15 +217,16 @@ function ViewerInner({ id, fileUrl }: { id: string; fileUrl: string }) {
   const cannotEmbed = inlineFailed || (diag && diag.ok === false)
 
   return (
-    <div className="container py-6">
-      <div className="card">
+    <ViewerErrorBoundary fileUrl={iframeSrc}>
+      <div className="container py-6">
+        <div className="card">
         <div className="mb-3 flex items-center justify-between text-sm text-gray-600">
           <div>Viewing: <span className="font-medium">{meta.filename}</span></div>
           <button
             className="btn btn-primary btn-sm"
             onClick={() => {
               if (typeof window !== 'undefined') {
-                window.open(fileUrl, '_blank', 'noopener')
+                window.open(iframeSrc, '_blank', 'noopener')
               }
             }}
           >
@@ -214,7 +237,7 @@ function ViewerInner({ id, fileUrl }: { id: string; fileUrl: string }) {
           {!cannotEmbed ? (
             <iframe
               ref={frameRef}
-              src={fileUrl}
+              src={iframeSrc}
               className="w-full min-h-[72vh] rounded-xl border"
               onError={() => setInlineFailed(true)}
               onLoad={() => {
@@ -239,7 +262,7 @@ function ViewerInner({ id, fileUrl }: { id: string; fileUrl: string }) {
                 className="btn btn-primary btn-sm"
                 onClick={() => {
                   if (typeof window !== 'undefined') {
-                    window.open(fileUrl, '_blank', 'noopener')
+                    window.open(iframeSrc, '_blank', 'noopener')
                   }
                 }}
               >
@@ -267,6 +290,8 @@ function ViewerInner({ id, fileUrl }: { id: string; fileUrl: string }) {
                       ))}
                     </>
                   )}
+                  {iframeSrc && <tr><td className="pr-2">iframeSrc</td><td>{iframeSrc.replace(/st=[^&]+/, 'st=***')}</td></tr>}
+                  <tr><td className="pr-2">token</td><td>{st ? 'present' : 'missing'}</td></tr>
                   {diag.error && <tr><td className="pr-2">error</td><td className="text-red-600">{diag.error}</td></tr>}
                 </tbody>
               </table>
@@ -278,6 +303,7 @@ function ViewerInner({ id, fileUrl }: { id: string; fileUrl: string }) {
         <div className="hint mt-3">Downloading disabled in viewer. All access is logged.</div>
       </div>
     </div>
+    </ViewerErrorBoundary>
   )
 }
 
@@ -295,12 +321,7 @@ export default function ViewerGate() {
       </div>
     )
   }
-  const fileUrl = `/api/stream/${id}`
-  return (
-    <ViewerErrorBoundary fileUrl={fileUrl}>
-      <ViewerInner id={id} fileUrl={fileUrl} />
-    </ViewerErrorBoundary>
-  )
+  return <ViewerInner id={id} />
 }
 
 export const getServerSideProps: GetServerSideProps = async ({ res }) => {

@@ -1,31 +1,43 @@
 
 import { useEffect, useState } from 'react'
 
-function hashString(str: string): string {
-  // Simple 32-bit hash then hex-encode
-  let h = 0
-  for (let i=0;i<str.length;i++) { h = Math.imul(31, h) + str.charCodeAt(i) | 0 }
-  return ('00000000'+(h>>>0).toString(16)).slice(-8)
+function buf2hex(buffer: ArrayBuffer): string {
+  return Array.from(new Uint8Array(buffer))
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('')
 }
 
 export default function useDeviceFingerprint() {
   const [fp, setFp] = useState<string>('')
   useEffect(() => {
-    try {
-      const nav = navigator as any
-      const data = [
-        nav.userAgent,
-        nav.language,
-        nav.platform,
-        nav.hardwareConcurrency,
-        nav.deviceMemory,
-        screen.width, screen.height, screen.colorDepth,
-        Intl.DateTimeFormat().resolvedOptions().timeZone
-      ].join('|')
-      setFp(hashString(data))
-    } catch {
-      setFp('unknown')
-    }
+    ;(async () => {
+      try {
+        const nav = navigator as any
+        const canvas = document.createElement('canvas')
+        const gl = canvas.getContext('webgl')
+        const vendor = gl ? gl.getParameter(gl.VENDOR) : ''
+        const tz = Intl.DateTimeFormat().resolvedOptions().timeZone
+        const data = [
+          nav.userAgent,
+          nav.language,
+          nav.platform,
+          nav.hardwareConcurrency,
+          nav.deviceMemory,
+          screen.width,
+          screen.height,
+          screen.colorDepth,
+          tz,
+          vendor,
+        ].join('|')
+        const hash = await crypto.subtle.digest(
+          'SHA-256',
+          new TextEncoder().encode(data)
+        )
+        setFp(buf2hex(hash))
+      } catch {
+        setFp('unknown')
+      }
+    })()
   }, [])
   return fp
 }

@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { getLink } from '../../../lib/store'
 import { requireEnv } from '../../../lib/env'
+import { kv } from '@vercel/kv'
 import fs from 'fs'
 import { Readable } from 'stream'
 import type { ReadableStream } from 'stream/web'
@@ -41,11 +42,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (!requireEnv(res, ['KV_REST_API_URL', 'KV_REST_API_TOKEN'])) return
   const { id } = req.query as { id: string }
   if (!id) return res.status(400).json({ error: 'id required' })
+  const st = req.query.st as string
+  if (!st) return res.status(401).json({ error: 'missing token' })
+  const token = await kv.hgetall<any>(`st:${st}`)
+  if (!token || !token.id) return res.status(401).json({ error: 'invalid token' })
+  if (token.id !== id) return res.status(401).json({ error: 'id mismatch' })
+  if (Number(token.expiresAt) < Date.now()) return res.status(401).json({ error: 'token expired' })
   const link = await getLink(id)
   if (!link) return res.status(404).json({ error: 'not found' })
 
   const headers = buildHeaders(link.filename)
   for (const [k, v] of Object.entries(headers)) res.setHeader(k, v)
+  const clientIp =
+    (req.headers['x-forwarded-for'] as string || '').split(',')[0] ||
+    req.socket.remoteAddress ||
+    ''
 
   const storage = link.blobUrl.startsWith('file://') ? 'tmp' : 'blob'
 
@@ -57,7 +68,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const rangeHeader = req.headers.range
     if (req.method === 'HEAD') {
       res.status(200).setHeader('Content-Length', size).end()
-      console.log(`[stream] id=${id} storage=${storage} range=${rangeHeader || 'full'} size=${size} status=200`)
+      console.log(
+        `[stream] id=${id} st=${st} ip=${clientIp} storage=${storage} range=${rangeHeader || 'full'} size=${size} status=200`
+      )
       return
     }
     const range = rangeHeader ? parseRange(rangeHeader, size) : null
@@ -66,12 +79,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       res.status(206)
       res.setHeader('Content-Range', `bytes ${start}-${end}/${size}`)
       res.setHeader('Content-Length', end - start + 1)
-      console.log(`[stream] id=${id} storage=${storage} range=${start}-${end} size=${size} status=206`)
+      console.log(
+        `[stream] id=${id} st=${st} ip=${clientIp} storage=${storage} range=${start}-${end} size=${size} status=206`
+      )
       fs.createReadStream(filePath, { start, end }).pipe(res)
     } else {
       res.status(200)
       res.setHeader('Content-Length', size)
-      console.log(`[stream] id=${id} storage=${storage} range=full size=${size} status=200`)
+      console.log(
+        `[stream] id=${id} st=${st} ip=${clientIp} storage=${storage} range=full size=${size} status=200`
+      )
       fs.createReadStream(filePath).pipe(res)
     }
     return
@@ -84,7 +101,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const rangeHeader = req.headers.range
   if (req.method === 'HEAD') {
     res.status(200).setHeader('Content-Length', size).end()
-    console.log(`[stream] id=${id} storage=${storage} range=${rangeHeader || 'full'} size=${size} status=200`)
+    console.log(
+      `[stream] id=${id} st=${st} ip=${clientIp} storage=${storage} range=${rangeHeader || 'full'} size=${size} status=200`
+    )
     return
   }
   const range = rangeHeader ? parseRange(rangeHeader, size) : null
@@ -96,13 +115,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     res.status(206)
     res.setHeader('Content-Range', `bytes ${start}-${end}/${size}`)
     res.setHeader('Content-Length', end - start + 1)
-    console.log(`[stream] id=${id} storage=${storage} range=${start}-${end} size=${size} status=206`)
+    console.log(
+      `[stream] id=${id} st=${st} ip=${clientIp} storage=${storage} range=${start}-${end} size=${size} status=206`
+    )
   } else {
     blobRes = await fetch(link.blobUrl)
     if (!blobRes.ok || !blobRes.body) return res.status(502).json({ error: 'failed to fetch' })
     res.status(200)
     res.setHeader('Content-Length', size)
-    console.log(`[stream] id=${id} storage=${storage} range=full size=${size} status=200`)
+    console.log(
+      `[stream] id=${id} st=${st} ip=${clientIp} storage=${storage} range=full size=${size} status=200`
+    )
   }
   Readable.fromWeb(blobRes.body as ReadableStream).pipe(res)
 }
