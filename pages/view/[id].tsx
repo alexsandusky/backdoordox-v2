@@ -45,7 +45,18 @@ function ViewerInner() {
   const [email, setEmail] = useState('')
   const [error, setError] = useState('')
   const [allowed, setAllowed] = useState(false)
-  const [meta, setMeta] = useState<any>(null)
+  type LinkMeta = { filename: string; expiresAt?: number; lender?: string }
+  type Diag = {
+    ok: boolean
+    storage?: string
+    filename?: string
+    size?: number
+    headers?: Record<string, string>
+    source?: 'blob' | 'tmp'
+    error?: string
+  }
+  const [meta, setMeta] = useState<LinkMeta | null>(null)
+  const [diag, setDiag] = useState<Diag | null>(null)
   const [streamError, setStreamError] = useState('')
   const [streamReady, setStreamReady] = useState(false)
   const [embedError, setEmbedError] = useState(false)
@@ -54,7 +65,10 @@ function ViewerInner() {
 
   useEffect(()=>{
     if (!id) return
-    fetch('/api/get-link?id=' + id).then(r=>r.json()).then(setMeta).catch(()=>{})
+    fetch('/api/get-link?id=' + id)
+      .then(r => r.json() as Promise<LinkMeta>)
+      .then(setMeta)
+      .catch(() => {})
   }, [id])
 
   const businessDomain = useMemo(() => {
@@ -105,7 +119,7 @@ function ViewerInner() {
       </div>
     )
 
-  const fileUrl = `/api/stream?id=${id}`
+  const fileUrl = `/api/stream/${id}`
 
   useEffect(() => {
     if (!allowed) return
@@ -126,6 +140,14 @@ function ViewerInner() {
       .catch(() => setStreamError('Failed to load document.'))
   }, [allowed, fileUrl])
 
+  useEffect(() => {
+    if (!allowed) return
+    fetch(`/api/stream/meta?id=${id}`)
+      .then(r => r.json() as Promise<Diag>)
+      .then(setDiag)
+      .catch(() => {})
+  }, [allowed, id])
+
 
   if (streamError) {
     return (
@@ -145,16 +167,18 @@ function ViewerInner() {
 
   if (!streamReady) return <div className="container py-10"><div className="card">Loading…</div></div>
 
+  const cannotEmbed = embedError || (diag && diag.ok === false)
+
   return (
     <div className="container py-6">
       <div className="card">
         <div className="mb-3 text-sm text-gray-600">Viewing: <span className="font-medium">{meta.filename}</span></div>
-        <div className="w-full h-[80vh] overflow-auto">
-          {!embedError ? (
+        <div className="w-full overflow-auto">
+          {!cannotEmbed ? (
             <iframe
               ref={frameRef}
               src={fileUrl}
-              className="w-full h-full rounded-xl border"
+              className="w-full min-h-[72vh] rounded-xl border"
               onError={() => setEmbedError(true)}
               onLoad={() => {
                 if (typeof window === 'undefined') return
@@ -174,7 +198,7 @@ function ViewerInner() {
             />
           ) : (
             <div className="flex items-center justify-between p-2 text-sm bg-gray-50 border rounded">
-              <span>Can’t render inline in this browser. Open the document in a new tab.</span>
+              <span>Can’t render inline. Open the document in a new tab.</span>
               <button
                 className="btn btn-primary btn-sm"
                 onClick={() => {
@@ -188,6 +212,25 @@ function ViewerInner() {
             </div>
           )}
         </div>
+        <details className="mt-3 text-xs">
+          <summary className="cursor-pointer select-none">Diagnostics</summary>
+          {diag ? (
+            <div className="mt-2 space-y-1">
+              <div>Status: {diag.ok ? 'ok' : `error${diag.error ? ` - ${diag.error}` : ''}`}</div>
+              {diag.storage && <div>Storage: {diag.storage}</div>}
+              {diag.filename && <div>Filename: {diag.filename}</div>}
+              {typeof diag.size === 'number' && <div>Size: {diag.size}</div>}
+              {diag.headers && (
+                <div>
+                  Headers:
+                  <pre className="mt-1 whitespace-pre-wrap">{JSON.stringify(diag.headers, null, 2)}</pre>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="mt-2">Loading…</div>
+          )}
+        </details>
         <div className="hint mt-3">Downloading disabled in viewer. All access is logged.</div>
       </div>
     </div>
