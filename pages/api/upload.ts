@@ -46,7 +46,7 @@ function parseForm(req: NextApiRequest): Promise<{buffer: Buffer, filename: stri
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return res.status(405).end()
-  if (!requireEnv(res, ['KV_REST_API_URL', 'KV_REST_API_TOKEN', 'BLOB_READ_WRITE_TOKEN', 'JWT_SECRET', 'NEXT_PUBLIC_APP_URL'])) return
+  if (!requireEnv(res, ['KV_REST_API_URL', 'KV_REST_API_TOKEN', 'JWT_SECRET', 'NEXT_PUBLIC_APP_URL'])) return
   const user = getUserFromRequest(req as any)
   if (!user) return res.status(401).json({ ok: false, error: 'Unauthorized' })
   try {
