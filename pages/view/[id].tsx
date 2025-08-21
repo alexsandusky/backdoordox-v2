@@ -1,12 +1,45 @@
 
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/router'
-import { useEffect, useMemo, useRef, useState } from 'react'
 import useDeviceFingerprint from '../../components/DeviceFingerprint'
 import type { GetServerSideProps } from 'next'
 
 const FREE_DOMAINS = ['gmail.com','yahoo.com','hotmail.com','outlook.com','aol.com','icloud.com','proton.me','protonmail.com','pm.me','zoho.com','gmx.com']
 
-export default function ViewerGate() {
+class ViewerErrorBoundary extends React.Component<React.PropsWithChildren<{}>, { hasError: boolean }> {
+  constructor(props: React.PropsWithChildren<{}>) {
+    super(props)
+    this.state = { hasError: false }
+  }
+  static getDerivedStateFromError() {
+    return { hasError: true }
+  }
+  componentDidCatch(error: unknown, errorInfo: React.ErrorInfo) {
+    console.error(error, errorInfo)
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="container py-6">
+          <div className="card text-center">
+            <div className="text-red-600 mb-2">Something went wrong.</div>
+            <button
+              className="link"
+              onClick={() => {
+                if (typeof window !== 'undefined') window.location.reload()
+              }}
+            >
+              Retry
+            </button>
+          </div>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
+
+function ViewerInner() {
   const router = useRouter()
   const { id } = router.query as { id: string }
   const [email, setEmail] = useState('')
@@ -15,9 +48,8 @@ export default function ViewerGate() {
   const [meta, setMeta] = useState<any>(null)
   const [streamError, setStreamError] = useState('')
   const [streamReady, setStreamReady] = useState(false)
-  const [usePdfJs, setUsePdfJs] = useState(false)
+  const [embedError, setEmbedError] = useState(false)
   const frameRef = useRef<HTMLIFrameElement>(null)
-  const canvasRef = useRef<HTMLDivElement>(null)
   const fp = useDeviceFingerprint()
 
   useEffect(()=>{
@@ -79,9 +111,14 @@ export default function ViewerGate() {
     if (!allowed) return
     setStreamError('')
     fetch(fileUrl, { method: 'HEAD' })
-      .then(r => {
+      .then(async r => {
         if (!r.ok) {
-          setStreamError(r.status === 404 ? 'Document not found.' : 'Failed to load document.')
+          let msg = 'Failed to load document.'
+          try {
+            const data = await r.json()
+            if (data?.error) msg = data.error
+          } catch {}
+          setStreamError(r.status === 404 ? 'Document not found.' : msg)
         } else {
           setStreamReady(true)
         }
@@ -89,81 +126,79 @@ export default function ViewerGate() {
       .catch(() => setStreamError('Failed to load document.'))
   }, [allowed, fileUrl])
 
-  useEffect(() => {
-    if (!streamReady) return
-    if ((navigator as any).pdfViewerEnabled === false) {
-      setUsePdfJs(true)
-    }
-  }, [streamReady])
-
-  useEffect(() => {
-    if (!usePdfJs) return
-    (async () => {
-      try {
-        const [pdfjs, worker] = await Promise.all([
-          import('pdfjs-dist'),
-          import('pdfjs-dist/build/pdf.worker.min.js')
-        ])
-        pdfjs.GlobalWorkerOptions.workerSrc = (worker as any).default
-        const resp = await fetch(fileUrl)
-        if (!resp.ok) throw new Error('fetch failed')
-        const buf = await resp.arrayBuffer()
-        const pdf = await pdfjs.getDocument({ data: buf }).promise
-        const container = canvasRef.current
-        if (!container) return
-        container.innerHTML = ''
-        for (let i = 1; i <= pdf.numPages; i++) {
-          const page = await pdf.getPage(i)
-          const viewport = page.getViewport({ scale: 1.2 })
-          const canvas = document.createElement('canvas')
-          canvas.width = viewport.width
-          canvas.height = viewport.height
-          const ctx = canvas.getContext('2d')
-          await page.render({ canvasContext: ctx!, viewport }).promise
-          container.appendChild(canvas)
-        }
-      } catch (e) {
-        console.error('PDF.js render failed', e)
-        setStreamError("We couldn't render the PDF.")
-      }
-    })()
-  }, [usePdfJs, fileUrl])
 
   if (streamError) {
     return (
       <div className="container py-6">
         <div className="card text-center">
           <div className="text-red-600 mb-2">{streamError}</div>
-          <a href="#" onClick={e => { e.preventDefault(); router.reload() }} className="link">Try again</a>
+          <button
+            onClick={() => router.reload()}
+            className="link"
+          >
+            Retry
+          </button>
         </div>
       </div>
     )
   }
 
-  if (!streamReady && !usePdfJs) return <div className="container py-10"><div className="card">Loading…</div></div>
+  if (!streamReady) return <div className="container py-10"><div className="card">Loading…</div></div>
 
   return (
     <div className="container py-6">
       <div className="card">
         <div className="mb-3 text-sm text-gray-600">Viewing: <span className="font-medium">{meta.filename}</span></div>
         <div className="w-full h-[80vh] overflow-auto">
-          {usePdfJs ? (
-            <div ref={canvasRef} className="w-full h-full overflow-auto" />
-          ) : (
+          {!embedError ? (
             <iframe
               ref={frameRef}
-              src={fileUrl + '#toolbar=0&navpanes=0&scrollbar=0'}
+              src={fileUrl}
               className="w-full h-full rounded-xl border"
-              onError={() => {
-                console.error('Native PDF viewer failed, falling back to PDF.js')
-                setUsePdfJs(true)
+              onError={() => setEmbedError(true)}
+              onLoad={() => {
+                if (typeof window === 'undefined') return
+                window.setTimeout(() => {
+                  const iframe = frameRef.current
+                  if (!iframe) return
+                  try {
+                    const doc = iframe.contentDocument
+                    if (!doc || doc.body?.childElementCount === 0) {
+                      setEmbedError(true)
+                    }
+                  } catch {
+                    setEmbedError(true)
+                  }
+                }, 500)
               }}
             />
+          ) : (
+            <div className="flex items-center justify-between p-2 text-sm bg-gray-50 border rounded">
+              <span>Can’t render inline in this browser. Open the document in a new tab.</span>
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={() => {
+                  if (typeof window !== 'undefined') {
+                    window.open(fileUrl, '_blank', 'noopener')
+                  }
+                }}
+              >
+                Open Securely
+              </button>
+            </div>
           )}
         </div>
         <div className="hint mt-3">Downloading disabled in viewer. All access is logged.</div>
       </div>
     </div>
+  )
+}
+
+export default function ViewerGate() {
+  return (
+    <ViewerErrorBoundary>
+      <ViewerInner />
+    </ViewerErrorBoundary>
   )
 }
 
