@@ -1,6 +1,6 @@
 
 import { useRouter } from 'next/router'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import useDeviceFingerprint from '../../components/DeviceFingerprint'
 import type { GetServerSideProps } from 'next'
 
@@ -15,6 +15,9 @@ export default function ViewerGate() {
   const [meta, setMeta] = useState<any>(null)
   const [streamError, setStreamError] = useState('')
   const [streamReady, setStreamReady] = useState(false)
+  const [usePdfJs, setUsePdfJs] = useState(false)
+  const frameRef = useRef<HTMLIFrameElement>(null)
+  const canvasRef = useRef<HTMLDivElement>(null)
   const fp = useDeviceFingerprint()
 
   useEffect(()=>{
@@ -86,6 +89,46 @@ export default function ViewerGate() {
       .catch(() => setStreamError('Failed to load document.'))
   }, [allowed, fileUrl])
 
+  useEffect(() => {
+    if (!streamReady) return
+    if ((navigator as any).pdfViewerEnabled === false) {
+      setUsePdfJs(true)
+    }
+  }, [streamReady])
+
+  useEffect(() => {
+    if (!usePdfJs) return
+    (async () => {
+      try {
+        const [pdfjs, worker] = await Promise.all([
+          import('pdfjs-dist'),
+          import('pdfjs-dist/build/pdf.worker.min.js')
+        ])
+        pdfjs.GlobalWorkerOptions.workerSrc = (worker as any).default
+        const resp = await fetch(fileUrl)
+        if (!resp.ok) throw new Error('fetch failed')
+        const buf = await resp.arrayBuffer()
+        const pdf = await pdfjs.getDocument({ data: buf }).promise
+        const container = canvasRef.current
+        if (!container) return
+        container.innerHTML = ''
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i)
+          const viewport = page.getViewport({ scale: 1.2 })
+          const canvas = document.createElement('canvas')
+          canvas.width = viewport.width
+          canvas.height = viewport.height
+          const ctx = canvas.getContext('2d')
+          await page.render({ canvasContext: ctx!, viewport }).promise
+          container.appendChild(canvas)
+        }
+      } catch (e) {
+        console.error('PDF.js render failed', e)
+        setStreamError("We couldn't render the PDF.")
+      }
+    })()
+  }, [usePdfJs, fileUrl])
+
   if (streamError) {
     return (
       <div className="container py-6">
@@ -97,15 +140,26 @@ export default function ViewerGate() {
     )
   }
 
-  if (!streamReady) return <div className="container py-10"><div className="card">Loading…</div></div>
+  if (!streamReady && !usePdfJs) return <div className="container py-10"><div className="card">Loading…</div></div>
 
   return (
     <div className="container py-6">
       <div className="card">
         <div className="mb-3 text-sm text-gray-600">Viewing: <span className="font-medium">{meta.filename}</span></div>
-        <div className="aspect-[1/1.414] w-full h-[80vh]">
-          {/* We hide default controls to discourage casual downloading */}
-          <iframe src={fileUrl + '#toolbar=0&navpanes=0&scrollbar=0'} className="w-full h-full rounded-xl border" sandbox="allow-same-origin allow-scripts allow-top-navigation-by-user-activation"></iframe>
+        <div className="w-full h-[80vh] overflow-auto">
+          {usePdfJs ? (
+            <div ref={canvasRef} className="w-full h-full overflow-auto" />
+          ) : (
+            <iframe
+              ref={frameRef}
+              src={fileUrl + '#toolbar=0&navpanes=0&scrollbar=0'}
+              className="w-full h-full rounded-xl border"
+              onError={() => {
+                console.error('Native PDF viewer failed, falling back to PDF.js')
+                setUsePdfJs(true)
+              }}
+            />
+          )}
         </div>
         <div className="hint mt-3">Downloading disabled in viewer. All access is logged.</div>
       </div>

@@ -22,6 +22,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   res.setHeader('Content-Type', 'application/pdf')
   res.setHeader('Content-Disposition', `inline; filename="${safeName.endsWith('.pdf') ? safeName : safeName + '.pdf'}"`)
   res.setHeader('Content-Security-Policy', "frame-ancestors 'self'")
+  res.status(200)
 
   try {
     if (req.method === 'HEAD') {
