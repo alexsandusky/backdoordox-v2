@@ -1,5 +1,5 @@
 
-import React, { useRef, useState } from 'react'
+import React, { useState } from 'react'
 import { PDFDocument, rgb, degrees, StandardFonts } from 'pdf-lib'
 import QRCode from 'qrcode'
 
@@ -23,6 +23,7 @@ export default function WatermarkClient({ ownerId }: Props) {
   const [busy, setBusy] = useState(false)
   const [resultUrl, setResultUrl] = useState<string>('')
   const [linkUrl, setLinkUrl] = useState<string>('')
+  const [pdfBytes, setPdfBytes] = useState<Uint8Array | null>(null)
 
   const onLogoSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -39,14 +40,13 @@ export default function WatermarkClient({ ownerId }: Props) {
       const reader = await files[0].arrayBuffer()
       const pdfDoc = await PDFDocument.load(reader)
       const pages = pdfDoc.getPages()
-      // Optional watermark text with page index
       const font = await pdfDoc.embedFont(StandardFonts.Helvetica)
       let pngImage: any = null
       if (logo) {
         const bytes = Uint8Array.from(atob(logo.split(',')[1]), c => c.charCodeAt(0))
         try {
           pngImage = await pdfDoc.embedPng(bytes)
-        } catch (e) {
+        } catch {
           console.warn('Logo is not PNG, skipping.')
         }
       }
@@ -56,27 +56,24 @@ export default function WatermarkClient({ ownerId }: Props) {
         const bytes = Uint8Array.from(atob(qrDataUrl.split(',')[1]), c => c.charCodeAt(0))
         qrImage = await pdfDoc.embedPng(bytes)
       }
-      pages.forEach((p, idx) => {
+      pages.forEach(p => {
         const { width, height } = p.getSize()
-        // Diagonal text watermark (very light so OCR can still read underlying content)
         const text = 'BackdoorDox • Confidential'
         const fontSize = Math.min(width, height) / 18
         p.drawText(text, {
-          x: width/2 - (font.widthOfTextAtSize(text, fontSize)/2),
-          y: height/2,
+          x: width / 2 - font.widthOfTextAtSize(text, fontSize) / 2,
+          y: height / 2,
           size: fontSize,
           font,
           color: rgb(0.2, 0.2, 0.2),
           rotate: degrees(35),
-          opacity: 0.08
+          opacity: 0.08,
         })
-
-        // Bottom-right QR code if provided
         if (qrImage) {
-          const w = 64, h = 64
+          const w = 64,
+            h = 64
           p.drawImage(qrImage, { x: width - w - 24, y: 24, width: w, height: h, opacity: 0.9 })
         }
-        // Top-left logo if provided (small)
         if (pngImage) {
           const w = 120
           const scale = w / pngImage.width
@@ -85,12 +82,23 @@ export default function WatermarkClient({ ownerId }: Props) {
         }
       })
 
-      const pdfBytes = await pdfDoc.save()
-      const blob = new Blob([pdfBytes], { type: 'application/pdf' })
+      const bytes = await pdfDoc.save()
+      setPdfBytes(bytes)
+      const blob = new Blob([bytes], { type: 'application/pdf' })
       const url = URL.createObjectURL(blob)
       setResultUrl(url)
+      setLinkUrl('')
+    } catch (e: any) {
+      alert('Failed: ' + e.message)
+    } finally {
+      setBusy(false)
+    }
+  }
 
-      // Upload to server for "Get Secure Link"
+  async function generateLink() {
+    if (!pdfBytes || !files) return
+    setBusy(true)
+    try {
       const form = new FormData()
       form.append('file', new Blob([pdfBytes], { type: 'application/pdf' }), files[0].name.replace(/\.pdf$/i, '') + '-watermarked.pdf')
       form.append('ownerId', ownerId)
@@ -99,8 +107,7 @@ export default function WatermarkClient({ ownerId }: Props) {
       if (!upload.ok) throw new Error('Upload failed')
       const data = await upload.json()
       setLinkUrl(data.viewerUrl)
-
-    } catch (e:any) {
+    } catch (e: any) {
       alert('Failed: ' + e.message)
     } finally {
       setBusy(false)
@@ -126,10 +133,21 @@ export default function WatermarkClient({ ownerId }: Props) {
         <h2 className="text-lg font-semibold mb-2">3) Watermark</h2>
         <p className="hint mb-3">Upload PDF (or try images—we’ll pass them as-is in this MVP).</p>
         <input type="file" accept="application/pdf" onChange={e=>setFiles(e.target.files)} />
-        <div className="mt-4 flex items-center gap-3">
-          <button disabled={!files || busy} onClick={process} className="btn btn-primary">{busy ? 'Processing…' : 'Watermark & Upload'}</button>
-          {resultUrl && <a className="btn btn-outline" href={resultUrl} download>Download Watermarked PDF</a>}
-          {linkUrl && <a className="btn btn-outline" href={linkUrl} target="_blank" rel="noreferrer">Get Secure Link</a>}
+        <div className="mt-4 flex flex-col gap-3">
+          <div className="flex items-center gap-3">
+            <button disabled={!files || busy} onClick={process} className="btn btn-primary">{busy ? 'Processing…' : 'Watermark'}</button>
+            {resultUrl && <a className="btn btn-outline" href={resultUrl} download>Download Watermarked PDF</a>}
+            {pdfBytes && !linkUrl && <button onClick={generateLink} className="btn btn-outline">Generate Secure Link</button>}
+          </div>
+          {linkUrl && (
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center gap-2">
+                <input className="input flex-1" value={linkUrl} readOnly />
+                <button className="btn" onClick={() => navigator.clipboard.writeText(linkUrl)}>Copy Link</button>
+              </div>
+              <div className="hint">Secure link created. Every open will be logged.</div>
+            </div>
+          )}
         </div>
       </div>
     </div>

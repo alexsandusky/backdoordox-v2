@@ -12,6 +12,7 @@ export type User = {
   createdAt: string
   plan: string
   apiKey: string
+  confirmedAt?: string
 }
 
 const JWT_SECRET = process.env.JWT_SECRET
@@ -24,9 +25,10 @@ function apiKeyKey(key: string) {
   return `api-key:${key}`
 }
 
-async function getUser(email: string): Promise<User | null> {
-  const data = await kv.hgetall<User>(userKey(email))
-  return (data && Object.keys(data).length) ? (data as User) : null
+export async function getUser(email: string): Promise<User | null> {
+  const data = await kv.hgetall<User>(userKey(email)) as any
+  if (!data || !data.email) return null
+  return { ...data, confirmedAt: (data as any).confirmedAt || undefined }
 }
 
 export async function registerUser(email: string, password: string): Promise<User> {
@@ -39,10 +41,13 @@ export async function registerUser(email: string, password: string): Promise<Use
     createdAt: new Date().toISOString(),
     plan: 'free',
     apiKey: crypto.randomBytes(16).toString('hex'),
+    confirmedAt: undefined,
   }
   await kv.hset(userKey(email), user)
   await kv.set(apiKeyKey(user.apiKey), user.email)
-  await sendConfirmationEmail(email, password)
+  const token = crypto.randomBytes(32).toString('hex')
+  await kv.set(`confirm:${token}`, user.email, { ex: 60 * 60 * 24 })
+  await sendConfirmationEmail(email, token)
   return user
 }
 
@@ -78,20 +83,29 @@ export async function getUserByApiKey(key: string): Promise<User | null> {
   return await getUser(email)
 }
 
-async function sendConfirmationEmail(email: string, password: string) {
-  const account = await nodemailer.createTestAccount()
-  const transporter = nodemailer.createTransport({
-    host: account.smtp.host,
-    port: account.smtp.port,
-    secure: account.smtp.secure,
-    auth: { user: account.user, pass: account.pass },
-  })
-
-  await transporter.sendMail({
-    from: 'no-reply@backdoordox.local',
-    to: email,
-    subject: 'Welcome to BackdoorDox',
-    text: `Your account has been created.\nUsername: ${email}\nPassword: ${password}`,
-  })
+export async function sendConfirmationEmail(email: string, token: string) {
+  const url = `${process.env.NEXT_PUBLIC_APP_URL || ''}/api/auth/confirm?token=${token}`
+  const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM } = process.env as Record<string, string | undefined>
+  if (SMTP_HOST && SMTP_PORT && SMTP_USER && SMTP_PASS && SMTP_FROM) {
+    try {
+      const transporter = nodemailer.createTransport({
+        host: SMTP_HOST,
+        port: Number(SMTP_PORT),
+        secure: Number(SMTP_PORT) === 465,
+        auth: { user: SMTP_USER, pass: SMTP_PASS },
+      })
+      await transporter.sendMail({
+        from: SMTP_FROM,
+        to: email,
+        subject: 'Confirm your BackdoorDox account',
+        text: `Click to confirm your account: ${url}`,
+      })
+    } catch (e) {
+      console.warn('email send failed', e)
+      console.log('Confirm URL:', url)
+    }
+  } else {
+    console.warn('SMTP env vars missing; outputting confirmation URL')
+    console.log('Confirm URL:', url)
+  }
 }
-
