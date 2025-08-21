@@ -15,6 +15,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   // NOTE: Vercel Blob private URLs require Authorization; @vercel/blob sdk's "get" isn't available here,
   // so we proxy the stored URL directly if it is public. For private, Vercel handles auth in URL.
   const url = link.blobUrl
+  res.setHeader('Cache-Control', 'no-store')
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN')
+  res.setHeader('Referrer-Policy', 'no-referrer')
+  res.setHeader('X-Robots-Tag', 'noindex, nofollow')
   res.setHeader('Content-Type', 'application/pdf')
   https.get(url, r => {
     r.pipe(res)

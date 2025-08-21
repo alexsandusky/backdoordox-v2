@@ -2,6 +2,7 @@
 import { useRouter } from 'next/router'
 import { useEffect, useMemo, useState } from 'react'
 import useDeviceFingerprint from '../../components/DeviceFingerprint'
+import type { GetServerSideProps } from 'next'
 
 const FREE_DOMAINS = ['gmail.com','yahoo.com','hotmail.com','outlook.com','aol.com','icloud.com','proton.me','protonmail.com','pm.me','zoho.com','gmx.com']
 
@@ -80,4 +81,12 @@ export default function ViewerGate() {
       </div>
     </div>
   )
+}
+
+export const getServerSideProps: GetServerSideProps = async ({ res }) => {
+  res.setHeader('Cache-Control', 'no-store')
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN')
+  res.setHeader('Referrer-Policy', 'no-referrer')
+  res.setHeader('X-Robots-Tag', 'noindex, nofollow')
+  return { props: {} }
 }
