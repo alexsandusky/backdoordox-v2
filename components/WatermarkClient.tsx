@@ -1,137 +1,364 @@
+import React, { useState, useRef } from 'react'
+import { PDFDocument, StandardFonts, rgb, degrees } from 'pdf-lib'
+import { Upload, X, Trash2, Download, Link as LinkIcon, Copy } from 'lucide-react'
 
-import React, { useRef, useState } from 'react'
-import { PDFDocument, rgb, degrees, StandardFonts } from 'pdf-lib'
-import QRCode from 'qrcode'
+type Mode = 'image' | 'text' | 'both'
+type Position = 'diagonal' | 'bottom-right' | 'top-left' | 'center' | 'footer' | 'tiled'
 
-type Props = {
-  ownerId: string
+interface QueueItem {
+  file: File
 }
 
-function toDataURL(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(reader.result as string)
-    reader.onerror = reject
-    reader.readAsDataURL(file)
+interface Settings {
+  mode: Mode
+  position: Position
+  opacity: number
+  scale: number
+  angle: number
+  margin: number
+  gap: number
+  text: string
+  image?: string
+}
+
+export default function WatermarkClient() {
+  const [queue, setQueue] = useState<QueueItem[]>([])
+  const [settings, setSettings] = useState<Settings>({
+    mode: 'text',
+    position: 'diagonal',
+    opacity: 0.08,
+    scale: 1,
+    angle: 45,
+    margin: 40,
+    gap: 150,
+    text: 'BackdoorDox • Confidential',
   })
-}
+  const [logs, setLogs] = useState<string[]>([])
+  const [linkUrl, setLinkUrl] = useState('')
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
-export default function WatermarkClient({ ownerId }: Props) {
-  const [logo, setLogo] = useState<string | null>(typeof window !== 'undefined' ? localStorage.getItem('bdx_logo') : null)
-  const [qrText, setQrText] = useState<string>('')
-  const [files, setFiles] = useState<FileList | null>(null)
-  const [busy, setBusy] = useState(false)
-  const [resultUrl, setResultUrl] = useState<string>('')
-  const [linkUrl, setLinkUrl] = useState<string>('')
+  const log = (m: string) => setLogs(l => [...l, m])
 
-  const onLogoSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    const dataUrl = await toDataURL(file)
-    setLogo(dataUrl)
-    if (typeof window !== 'undefined') localStorage.setItem('bdx_logo', dataUrl)
+  const addFiles = (list: FileList) => {
+    const items = Array.from(list).filter(f => f.type === 'application/pdf')
+    if (items.length === 0) return
+    setQueue(q => [...q, ...items.map(file => ({ file }))])
   }
 
-  async function process() {
-    if (!files || files.length === 0) return
-    setBusy(true)
-    try {
-      const reader = await files[0].arrayBuffer()
-      const pdfDoc = await PDFDocument.load(reader)
-      const pages = pdfDoc.getPages()
-      // Optional watermark text with page index
-      const font = await pdfDoc.embedFont(StandardFonts.Helvetica)
-      let pngImage: any = null
-      if (logo) {
-        const bytes = Uint8Array.from(atob(logo.split(',')[1]), c => c.charCodeAt(0))
-        try {
-          pngImage = await pdfDoc.embedPng(bytes)
-        } catch (e) {
-          console.warn('Logo is not PNG, skipping.')
-        }
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    if (e.dataTransfer.files) addFiles(e.dataTransfer.files)
+  }
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) addFiles(e.target.files)
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  const removeItem = (idx: number) => setQueue(q => q.filter((_, i) => i !== idx))
+  const clearQueue = () => setQueue([])
+
+  const onImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = () => setSettings(s => ({ ...s, image: reader.result as string }))
+    reader.readAsDataURL(file)
+  }
+
+  async function watermarkFile(file: File): Promise<Uint8Array> {
+    log(`Processing ${file.name}`)
+    const array = await file.arrayBuffer()
+    const pdfDoc = await PDFDocument.load(array)
+    const font = await pdfDoc.embedFont(StandardFonts.Helvetica)
+    let embeddedImg: any = null
+    if (settings.mode !== 'text' && settings.image) {
+      const bytes = Uint8Array.from(atob(settings.image.split(',')[1]), c => c.charCodeAt(0))
+      try {
+        embeddedImg = await pdfDoc.embedPng(bytes)
+      } catch {
+        embeddedImg = await pdfDoc.embedJpg(bytes)
       }
-      let qrImage: any = null
-      if (qrText.trim().length > 0) {
-        const qrDataUrl = await QRCode.toDataURL(qrText, { margin: 0, width: 256 })
-        const bytes = Uint8Array.from(atob(qrDataUrl.split(',')[1]), c => c.charCodeAt(0))
-        qrImage = await pdfDoc.embedPng(bytes)
-      }
-      pages.forEach((p, idx) => {
-        const { width, height } = p.getSize()
-        // Diagonal text watermark (very light so OCR can still read underlying content)
-        const text = 'BackdoorDox • Confidential'
-        const fontSize = Math.min(width, height) / 18
-        p.drawText(text, {
-          x: width/2 - (font.widthOfTextAtSize(text, fontSize)/2),
-          y: height/2,
-          size: fontSize,
-          font,
-          color: rgb(0.2, 0.2, 0.2),
-          rotate: degrees(35),
-          opacity: 0.08
-        })
-
-        // Bottom-right QR code if provided
-        if (qrImage) {
-          const w = 64, h = 64
-          p.drawImage(qrImage, { x: width - w - 24, y: 24, width: w, height: h, opacity: 0.9 })
-        }
-        // Top-left logo if provided (small)
-        if (pngImage) {
-          const w = 120
-          const scale = w / pngImage.width
-          const h = pngImage.height * scale
-          p.drawImage(pngImage, { x: 24, y: height - h - 24, width: w, height: h, opacity: 0.75 })
-        }
-      })
-
-      const pdfBytes = await pdfDoc.save()
-      const blob = new Blob([pdfBytes], { type: 'application/pdf' })
-      const url = URL.createObjectURL(blob)
-      setResultUrl(url)
-
-      // Upload to server for "Get Secure Link"
-      const form = new FormData()
-      form.append('file', new Blob([pdfBytes], { type: 'application/pdf' }), files[0].name.replace(/\.pdf$/i, '') + '-watermarked.pdf')
-      form.append('ownerId', ownerId)
-      if (qrText) form.append('qr', qrText)
-      const upload = await fetch('/api/upload', { method: 'POST', body: form })
-      if (!upload.ok) throw new Error('Upload failed')
-      const data = await upload.json()
-      setLinkUrl(data.viewerUrl)
-
-    } catch (e:any) {
-      alert('Failed: ' + e.message)
-    } finally {
-      setBusy(false)
     }
+    const pages = pdfDoc.getPages()
+    pages.forEach(page => {
+      const { width, height } = page.getSize()
+      const drawAt = (x: number, y: number) => {
+        if (settings.mode !== 'image') {
+          const fontSize = 24 * settings.scale
+          const textWidth = font.widthOfTextAtSize(settings.text, fontSize)
+          page.drawText(settings.text, {
+            x: x - textWidth / 2,
+            y: y - fontSize / 2,
+            size: fontSize,
+            font,
+            color: rgb(0.2, 0.2, 0.2),
+            rotate: degrees(settings.angle),
+            opacity: settings.opacity,
+          })
+        }
+        if (embeddedImg && settings.mode !== 'text') {
+          const scaled = embeddedImg.scale(settings.scale)
+          page.drawImage(embeddedImg, {
+            x: x - scaled.width / 2,
+            y: y - scaled.height / 2,
+            width: scaled.width,
+            height: scaled.height,
+            rotate: degrees(settings.angle),
+            opacity: settings.opacity,
+          })
+        }
+      }
+
+      switch (settings.position) {
+        case 'diagonal':
+          drawAt(width / 2, height / 2)
+          break
+        case 'bottom-right':
+          drawAt(width - settings.margin, settings.margin)
+          break
+        case 'top-left':
+          drawAt(settings.margin, height - settings.margin)
+          break
+        case 'center':
+          drawAt(width / 2, height / 2)
+          break
+        case 'footer':
+          drawAt(width / 2, settings.margin)
+          break
+        case 'tiled':
+          const gap = settings.gap
+          const cols = Math.min(50, Math.ceil((width - settings.margin) / gap))
+          const rows = Math.min(50, Math.ceil((height - settings.margin) / gap))
+          for (let i = 0; i < cols; i++) {
+            for (let j = 0; j < rows; j++) {
+              drawAt(settings.margin + i * gap, settings.margin + j * gap)
+            }
+          }
+          break
+      }
+    })
+    return pdfDoc.save({ useObjectStreams: false, addDefaultPage: false })
+  }
+
+  async function downloadAll() {
+    setLinkUrl('')
+    for (const item of queue) {
+      const bytes = await watermarkFile(item.file)
+      const blob = new Blob([bytes], { type: 'application/pdf' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = item.file.name.replace(/\.pdf$/i, '') + '_watermarked.pdf'
+      a.click()
+      log(`Downloaded ${a.download}`)
+    }
+  }
+
+  async function generateLink() {
+    if (queue.length === 0) return
+    const bytes = await watermarkFile(queue[0].file)
+    const form = new FormData()
+    form.append(
+      'file',
+      new Blob([bytes], { type: 'application/pdf' }),
+      queue[0].file.name.replace(/\.pdf$/i, '') + '_watermarked.pdf'
+    )
+    const upload = await fetch('/api/upload', { method: 'POST', body: form })
+    if (!upload.ok) {
+      log('Upload failed')
+      return
+    }
+    const data = await upload.json()
+    setLinkUrl(data.viewerUrl)
+    log('Secure link generated')
   }
 
   return (
     <div className="space-y-6">
       <div className="card">
-        <h2 className="text-lg font-semibold mb-2">1) Stored Logo</h2>
-        <p className="hint mb-3">Upload your PNG logo once and we’ll store it in your browser for future sessions.</p>
-        <input type="file" accept="image/png" onChange={onLogoSelect} />
-        {logo && <div className="mt-3"><img src={logo} alt="logo" className="w-40 rounded border" /></div>}
-      </div>
-
-      <div className="card">
-        <h2 className="text-lg font-semibold mb-2">2) (Optional) QR Code</h2>
-        <p className="hint mb-3">Embed a small QR code on each page (bottom-right). Use it to encode a case ID, link, or lender name.</p>
-        <input className="input" placeholder="optional text to encode" value={qrText} onChange={e=>setQrText(e.target.value)} />
-      </div>
-
-      <div className="card">
-        <h2 className="text-lg font-semibold mb-2">3) Watermark</h2>
-        <p className="hint mb-3">Upload PDF (or try images—we’ll pass them as-is in this MVP).</p>
-        <input type="file" accept="application/pdf" onChange={e=>setFiles(e.target.files)} />
-        <div className="mt-4 flex items-center gap-3">
-          <button disabled={!files || busy} onClick={process} className="btn btn-primary">{busy ? 'Processing…' : 'Watermark & Upload'}</button>
-          {resultUrl && <a className="btn btn-outline" href={resultUrl} download>Download Watermarked PDF</a>}
-          {linkUrl && <a className="btn btn-outline" href={linkUrl} target="_blank" rel="noreferrer">Get Secure Link</a>}
+        <h2 className="text-lg font-semibold mb-2">Files</h2>
+        <div
+          onDragOver={e => e.preventDefault()}
+          onDrop={handleDrop}
+          className="border-2 border-dashed rounded p-6 text-center"
+        >
+          <input
+            type="file"
+            multiple
+            accept="application/pdf"
+            ref={fileInputRef}
+            onChange={handleFileChange}
+            className="hidden"
+          />
+          <p className="mb-2 text-sm flex flex-col items-center gap-2">
+            <Upload className="w-5 h-5" />
+            Drag & drop PDFs here or
+            <button
+              type="button"
+              className="underline"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              browse
+            </button>
+          </p>
         </div>
+        {queue.length > 0 && (
+          <>
+            <ul className="mt-4 space-y-2">
+              {queue.map((item, idx) => (
+                <li key={idx} className="flex items-center justify-between bg-gray-50 p-2 rounded">
+                  <span className="text-sm truncate">{item.file.name}</span>
+                  <button onClick={() => removeItem(idx)} className="text-red-500">
+                    <X className="w-4 h-4" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+            <button onClick={clearQueue} className="btn btn-outline mt-2 flex items-center gap-2">
+              <Trash2 className="w-4 h-4" /> Clear
+            </button>
+          </>
+        )}
+      </div>
+
+      <div className="card">
+        <h2 className="text-lg font-semibold mb-2">Settings</h2>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm mb-1">Mode</label>
+            <select
+              className="input"
+              value={settings.mode}
+              onChange={e => setSettings(s => ({ ...s, mode: e.target.value as Mode }))}
+            >
+              <option value="text">Text</option>
+              <option value="image">Image</option>
+              <option value="both">Both</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm mb-1">Position</label>
+            <select
+              className="input"
+              value={settings.position}
+              onChange={e => setSettings(s => ({ ...s, position: e.target.value as Position }))}
+            >
+              <option value="diagonal">Diagonal Center</option>
+              <option value="bottom-right">Bottom Right</option>
+              <option value="top-left">Top Left</option>
+              <option value="center">Center</option>
+              <option value="footer">Footer</option>
+              <option value="tiled">Tiled</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm mb-1">Opacity</label>
+            <input
+              type="number"
+              step="0.05"
+              min="0"
+              max="1"
+              className="input"
+              value={settings.opacity}
+              onChange={e => setSettings(s => ({ ...s, opacity: parseFloat(e.target.value) }))}
+            />
+          </div>
+          <div>
+            <label className="block text-sm mb-1">Scale</label>
+            <input
+              type="number"
+              step="0.1"
+              min="0.1"
+              className="input"
+              value={settings.scale}
+              onChange={e => setSettings(s => ({ ...s, scale: parseFloat(e.target.value) }))}
+            />
+          </div>
+          <div>
+            <label className="block text-sm mb-1">Angle</label>
+            <input
+              type="number"
+              className="input"
+              value={settings.angle}
+              onChange={e => setSettings(s => ({ ...s, angle: parseFloat(e.target.value) }))}
+            />
+          </div>
+          <div>
+            <label className="block text-sm mb-1">Margin</label>
+            <input
+              type="number"
+              className="input"
+              value={settings.margin}
+              onChange={e => setSettings(s => ({ ...s, margin: parseFloat(e.target.value) }))}
+            />
+          </div>
+          {settings.position === 'tiled' && (
+            <div>
+              <label className="block text-sm mb-1">Gap</label>
+              <input
+                type="number"
+                className="input"
+                value={settings.gap}
+                onChange={e => setSettings(s => ({ ...s, gap: parseFloat(e.target.value) }))}
+              />
+            </div>
+          )}
+          {settings.mode !== 'image' && (
+            <div className="col-span-2">
+              <label className="block text-sm mb-1">Text</label>
+              <input
+                className="input"
+                value={settings.text}
+                onChange={e => setSettings(s => ({ ...s, text: e.target.value }))}
+              />
+            </div>
+          )}
+          {settings.mode !== 'text' && (
+            <div className="col-span-2">
+              <label className="block text-sm mb-1">Watermark Image</label>
+              <input type="file" accept="image/*" onChange={onImageChange} />
+              {settings.image && <img src={settings.image} alt="watermark" className="mt-2 w-32 border rounded" />}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="flex flex-wrap gap-3">
+          <button
+            className="btn btn-primary flex items-center gap-2"
+            disabled={queue.length === 0}
+            onClick={downloadAll}
+          >
+            <Download className="w-4 h-4" /> Download Watermarked PDF(s)
+          </button>
+          <button
+            className="btn btn-outline flex items-center gap-2"
+            disabled={queue.length === 0}
+            onClick={generateLink}
+          >
+            <LinkIcon className="w-4 h-4" /> Generate Secure Link
+          </button>
+        </div>
+        {linkUrl && (
+          <div className="mt-4 space-y-1">
+            <div className="flex gap-2">
+              <input className="input flex-1" value={linkUrl} readOnly />
+              <button className="btn" onClick={() => navigator.clipboard.writeText(linkUrl)}>
+                <Copy className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="hint">Secure link created. Every open will be logged.</div>
+          </div>
+        )}
+      </div>
+
+      <div className="card">
+        <h2 className="text-lg font-semibold mb-2">Logs</h2>
+        <pre className="bg-gray-100 p-2 rounded h-40 overflow-auto text-xs whitespace-pre-wrap">{logs.join('\n')}</pre>
       </div>
     </div>
   )
 }
+
