@@ -13,6 +13,8 @@ export default function ViewerGate() {
   const [error, setError] = useState('')
   const [allowed, setAllowed] = useState(false)
   const [meta, setMeta] = useState<any>(null)
+  const [streamError, setStreamError] = useState('')
+  const [streamReady, setStreamReady] = useState(false)
   const fp = useDeviceFingerprint()
 
   useEffect(()=>{
@@ -69,6 +71,34 @@ export default function ViewerGate() {
     )
 
   const fileUrl = `/api/stream?id=${id}`
+
+  useEffect(() => {
+    if (!allowed) return
+    setStreamError('')
+    fetch(fileUrl, { method: 'HEAD' })
+      .then(r => {
+        if (!r.ok) {
+          setStreamError(r.status === 404 ? 'Document not found.' : 'Failed to load document.')
+        } else {
+          setStreamReady(true)
+        }
+      })
+      .catch(() => setStreamError('Failed to load document.'))
+  }, [allowed, fileUrl])
+
+  if (streamError) {
+    return (
+      <div className="container py-6">
+        <div className="card text-center">
+          <div className="text-red-600 mb-2">{streamError}</div>
+          <a href="#" onClick={e => { e.preventDefault(); router.reload() }} className="link">Try again</a>
+        </div>
+      </div>
+    )
+  }
+
+  if (!streamReady) return <div className="container py-10"><div className="card">Loading…</div></div>
+
   return (
     <div className="container py-6">
       <div className="card">
@@ -88,5 +118,6 @@ export const getServerSideProps: GetServerSideProps = async ({ res }) => {
   res.setHeader('X-Frame-Options', 'SAMEORIGIN')
   res.setHeader('Referrer-Policy', 'no-referrer')
   res.setHeader('X-Robots-Tag', 'noindex, nofollow')
+  res.setHeader('Content-Security-Policy', "frame-ancestors 'self'")
   return { props: {} }
 }
