@@ -10,9 +10,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (!requireEnv(res, ['KV_REST_API_URL', 'KV_REST_API_TOKEN', 'JWT_SECRET'])) return
   const { email, password } = req.body
   const user = await authenticate(email, password)
-  if (user) {
+  if (user && user.confirmedAt) {
     createSession(res, user)
     res.status(200).json({ ok: true })
+  } else if (user && !user.confirmedAt) {
+    res.status(403).json({ error: 'Please confirm your email' })
   } else {
     res.status(401).json({ error: 'Invalid credentials' })
   }
