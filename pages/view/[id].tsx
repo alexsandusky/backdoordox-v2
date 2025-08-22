@@ -8,7 +8,7 @@ import type { GetServerSideProps } from 'next'
 const FREE_DOMAINS = ['gmail.com','yahoo.com','hotmail.com','outlook.com','aol.com','icloud.com','proton.me','protonmail.com','pm.me','zoho.com','gmx.com']
 
 class ViewerErrorBoundary extends React.Component<
-  React.PropsWithChildren<{ fileUrl: string; id: string }>,
+  React.PropsWithChildren<{ fileUrl: string; id: string; debug: boolean; debugOpen: boolean }>,
   {
     hasError: boolean
     diag: Diag | null
@@ -17,9 +17,17 @@ class ViewerErrorBoundary extends React.Component<
     debugOpen: boolean
   }
 > {
-  constructor(props: React.PropsWithChildren<{ fileUrl: string; id: string }>) {
+  constructor(
+    props: React.PropsWithChildren<{ fileUrl: string; id: string; debug: boolean; debugOpen: boolean }>,
+  ) {
     super(props)
-    this.state = { hasError: false, diag: null, diagStatus: null, debug: false, debugOpen: false }
+    this.state = {
+      hasError: false,
+      diag: null,
+      diagStatus: null,
+      debug: props.debug,
+      debugOpen: props.debugOpen,
+    }
   }
   static getDerivedStateFromError() {
     return { hasError: true }
@@ -28,19 +36,25 @@ class ViewerErrorBoundary extends React.Component<
     console.error(error, errorInfo)
   }
   componentDidMount() {
-    if (typeof window === 'undefined') return
-    const params = new URLSearchParams(window.location.search)
-    const debug = params.has('debug')
-    const debugOpen = params.get('debug') === '1'
-    this.setState({ debug, debugOpen })
-    if (debug) {
-      fetch(`/api/stream/meta?id=${this.props.id}`)
-        .then(async r => {
-          const data = (await r.json()) as Diag
-          this.setState({ diag: data, diagStatus: r.status })
-        })
-        .catch(() => {})
+    if (this.props.debug) {
+      this.fetchDiag()
     }
+  }
+
+  componentDidUpdate(prevProps: Readonly<{ fileUrl: string; id: string; debug: boolean; debugOpen: boolean }>) {
+    if (!prevProps.debug && this.props.debug) {
+      this.setState({ debug: this.props.debug, debugOpen: this.props.debugOpen })
+      this.fetchDiag()
+    }
+  }
+
+  private fetchDiag() {
+    fetch(`/api/stream/meta?id=${this.props.id}`)
+      .then(async r => {
+        const data = (await r.json()) as Diag
+        this.setState({ diag: data, diagStatus: r.status })
+      })
+      .catch(() => {})
   }
   render() {
     if (this.state.hasError) {
@@ -281,7 +295,12 @@ function ViewerInner({ id, fileUrl }: { id: string; fileUrl: string }) {
 export default function ViewerGate() {
   const router = useRouter()
   const rawId = router.query.id
+  const rawDebug = router.query.debug
   const id = typeof rawId === 'string' ? rawId : Array.isArray(rawId) ? rawId[0] : ''
+  const debug = typeof rawDebug !== 'undefined'
+  const debugOpen = Array.isArray(rawDebug)
+    ? rawDebug[0] === '1'
+    : rawDebug === '1'
   if (!id) {
     return (
       <div className="container py-10">
@@ -294,7 +313,7 @@ export default function ViewerGate() {
   }
   const fileUrl = `/api/stream/${id}`
   return (
-    <ViewerErrorBoundary fileUrl={fileUrl} id={id}>
+    <ViewerErrorBoundary fileUrl={fileUrl} id={id} debug={debug} debugOpen={debugOpen}>
       <ViewerInner id={id} fileUrl={fileUrl} />
     </ViewerErrorBoundary>
   )
