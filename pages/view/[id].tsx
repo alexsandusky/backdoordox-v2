@@ -2,23 +2,45 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/router'
 import useDeviceFingerprint from '../../components/DeviceFingerprint'
+import DiagnosticsPanel, { Diag } from '../../components/DiagnosticsPanel'
 import type { GetServerSideProps } from 'next'
 
 const FREE_DOMAINS = ['gmail.com','yahoo.com','hotmail.com','outlook.com','aol.com','icloud.com','proton.me','protonmail.com','pm.me','zoho.com','gmx.com']
 
 class ViewerErrorBoundary extends React.Component<
-  React.PropsWithChildren<{ fileUrl: string }>,
-  { hasError: boolean }
+  React.PropsWithChildren<{ fileUrl: string; id: string }>,
+  {
+    hasError: boolean
+    diag: Diag | null
+    diagStatus: number | null
+    debug: boolean
+    debugOpen: boolean
+  }
 > {
-  constructor(props: React.PropsWithChildren<{ fileUrl: string }>) {
+  constructor(props: React.PropsWithChildren<{ fileUrl: string; id: string }>) {
     super(props)
-    this.state = { hasError: false }
+    this.state = { hasError: false, diag: null, diagStatus: null, debug: false, debugOpen: false }
   }
   static getDerivedStateFromError() {
     return { hasError: true }
   }
   componentDidCatch(error: unknown, errorInfo: React.ErrorInfo) {
     console.error(error, errorInfo)
+  }
+  componentDidMount() {
+    if (typeof window === 'undefined') return
+    const params = new URLSearchParams(window.location.search)
+    const debug = params.has('debug')
+    const debugOpen = params.get('debug') === '1'
+    this.setState({ debug, debugOpen })
+    if (debug) {
+      fetch(`/api/stream/meta?id=${this.props.id}`)
+        .then(async r => {
+          const data = (await r.json()) as Diag
+          this.setState({ diag: data, diagStatus: r.status })
+        })
+        .catch(() => {})
+    }
   }
   render() {
     if (this.state.hasError) {
@@ -47,6 +69,13 @@ class ViewerErrorBoundary extends React.Component<
                 Open Securely
               </button>
             </div>
+            {this.state.debug && (
+              <DiagnosticsPanel
+                diag={this.state.diag}
+                diagStatus={this.state.diagStatus}
+                debugOpen={this.state.debugOpen}
+              />
+            )}
           </div>
         </div>
       )
@@ -61,19 +90,10 @@ function ViewerInner({ id, fileUrl }: { id: string; fileUrl: string }) {
   const [error, setError] = useState('')
   const [allowed, setAllowed] = useState(false)
   type LinkMeta = { filename: string; expiresAt?: number; lender?: string }
-  type Diag = {
-    ok: boolean
-    storage?: string
-    filename?: string
-    size?: number
-    hasRange?: boolean
-    headers?: Record<string, string>
-    source?: 'blob' | 'tmp'
-    error?: string
-  }
   const [meta, setMeta] = useState<LinkMeta | null>(null)
   const [diag, setDiag] = useState<Diag | null>(null)
   const [diagStatus, setDiagStatus] = useState<number | null>(null)
+  const [debug, setDebug] = useState(false)
   const [debugOpen, setDebugOpen] = useState(false)
   const [streamError, setStreamError] = useState('')
   const [streamReady, setStreamReady] = useState(false)
@@ -92,6 +112,7 @@ function ViewerInner({ id, fileUrl }: { id: string; fileUrl: string }) {
   useEffect(() => {
     if (typeof window === 'undefined') return
     const params = new URLSearchParams(window.location.search)
+    setDebug(params.has('debug'))
     setDebugOpen(params.get('debug') === '1')
   }, [])
 
@@ -163,7 +184,7 @@ function ViewerInner({ id, fileUrl }: { id: string; fileUrl: string }) {
   }, [allowed, fileUrl])
 
   useEffect(() => {
-    if (!allowed) return
+    if (!allowed || !debug) return
     fetch(`/api/stream/meta?id=${id}`)
       .then(async r => {
         setDiagStatus(r.status)
@@ -171,7 +192,7 @@ function ViewerInner({ id, fileUrl }: { id: string; fileUrl: string }) {
         setDiag(data)
       })
       .catch(() => {})
-  }, [allowed, id])
+  }, [allowed, id, debug])
 
 
   if (streamError) {
@@ -248,33 +269,9 @@ function ViewerInner({ id, fileUrl }: { id: string; fileUrl: string }) {
             </div>
           )}
         </div>
-        <details className="mt-3 text-xs" open={debugOpen}>
-          <summary className="cursor-pointer select-none">Diagnostics</summary>
-          {diag ? (
-            <div className="mt-2">
-              <table className="border-collapse text-left">
-                <tbody>
-                  <tr><td className="pr-2">status</td><td>{diagStatus ?? 'unknown'}</td></tr>
-                  <tr><td className="pr-2">ok</td><td>{String(diag.ok)}</td></tr>
-                  {diag.storage && <tr><td className="pr-2">storage</td><td>{diag.storage}</td></tr>}
-                  {diag.filename && <tr><td className="pr-2">filename</td><td>{diag.filename}</td></tr>}
-                  {typeof diag.size === 'number' && <tr><td className="pr-2">size</td><td>{diag.size}</td></tr>}
-                  {typeof diag.hasRange === 'boolean' && <tr><td className="pr-2">hasRange</td><td>{String(diag.hasRange)}</td></tr>}
-                  {diag.headers && (
-                    <>
-                      {['Content-Type','Content-Disposition','Cache-Control','X-Frame-Options','Accept-Ranges','Content-Length'].map(h => (
-                        <tr key={h}><td className="pr-2">{h}</td><td>{diag.headers?.[h]}</td></tr>
-                      ))}
-                    </>
-                  )}
-                  {diag.error && <tr><td className="pr-2">error</td><td className="text-red-600">{diag.error}</td></tr>}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div className="mt-2">Loading…</div>
-          )}
-        </details>
+        {debug && (
+          <DiagnosticsPanel diag={diag} diagStatus={diagStatus} debugOpen={debugOpen} />
+        )}
         <div className="hint mt-3">Downloading disabled in viewer. All access is logged.</div>
       </div>
     </div>
@@ -297,7 +294,7 @@ export default function ViewerGate() {
   }
   const fileUrl = `/api/stream/${id}`
   return (
-    <ViewerErrorBoundary fileUrl={fileUrl}>
+    <ViewerErrorBoundary fileUrl={fileUrl} id={id}>
       <ViewerInner id={id} fileUrl={fileUrl} />
     </ViewerErrorBoundary>
   )
