@@ -1,8 +1,9 @@
 
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/router'
 import useDeviceFingerprint from '../../components/DeviceFingerprint'
 import DiagnosticsPanel, { Diag } from '../../components/DiagnosticsPanel'
+import SecurePdfViewer from '../../components/SecurePdfViewer'
 import type { GetServerSideProps } from 'next'
 
 const FREE_DOMAINS = ['gmail.com','yahoo.com','hotmail.com','outlook.com','aol.com','icloud.com','proton.me','protonmail.com','pm.me','zoho.com','gmx.com']
@@ -63,7 +64,7 @@ class ViewerErrorBoundary extends React.Component<
         <div className="container py-6">
           <div className="card text-center">
             <div className="text-red-600 mb-2">Viewer failed to load.</div>
-            <div className="flex items-center justify-center gap-4">
+            <div className="flex items-center justify-center">
               <button
                 className="link"
                 onClick={() => {
@@ -71,16 +72,6 @@ class ViewerErrorBoundary extends React.Component<
                 }}
               >
                 Retry
-              </button>
-              <button
-                className="link"
-                onClick={() => {
-                  if (typeof window !== 'undefined') {
-                    window.open(fileUrl, '_blank', 'noopener')
-                  }
-                }}
-              >
-                Open Securely
               </button>
             </div>
             {this.state.debug && (
@@ -111,8 +102,6 @@ function ViewerInner({ id, fileUrl }: { id: string; fileUrl: string }) {
   const [debugOpen, setDebugOpen] = useState(false)
   const [streamError, setStreamError] = useState('')
   const [streamReady, setStreamReady] = useState(false)
-  const [inlineFailed, setInlineFailed] = useState(false)
-  const frameRef = useRef<HTMLIFrameElement>(null)
   const fp = useDeviceFingerprint()
 
   useEffect(() => {
@@ -227,61 +216,14 @@ function ViewerInner({ id, fileUrl }: { id: string; fileUrl: string }) {
 
   if (!streamReady) return <div className="container py-10"><div className="card">Loading…</div></div>
 
-  const cannotEmbed = inlineFailed || (diag && diag.ok === false)
-
   return (
     <div className="container py-6">
       <div className="card">
-        <div className="mb-3 flex items-center justify-between text-sm text-gray-600">
-          <div>Viewing: <span className="font-medium">{meta.filename}</span></div>
-          <button
-            className="btn btn-primary btn-sm"
-            onClick={() => {
-              if (typeof window !== 'undefined') {
-                window.open(fileUrl, '_blank', 'noopener')
-              }
-            }}
-          >
-            Open Securely
-          </button>
+        <div className="mb-3 text-sm text-gray-600">
+          Viewing: <span className="font-medium">{meta.filename}</span>
         </div>
         <div className="w-full overflow-auto">
-          {!cannotEmbed ? (
-            <iframe
-              ref={frameRef}
-              src={fileUrl}
-              className="w-full min-h-[72vh] rounded-xl border"
-              onError={() => setInlineFailed(true)}
-              onLoad={() => {
-                if (typeof window === 'undefined') return
-                window.setTimeout(() => {
-                  const iframe = frameRef.current
-                  if (!iframe) return
-                  try {
-                    if ((iframe.contentWindow?.length || 0) === 0) {
-                      setInlineFailed(true)
-                    }
-                  } catch {
-                    setInlineFailed(true)
-                  }
-                }, 800)
-              }}
-            />
-          ) : (
-            <div className="flex items-center justify-between p-2 text-sm bg-gray-50 border rounded">
-              <span>Inline viewer failed. Use Open Securely to view in a new tab.</span>
-              <button
-                className="btn btn-primary btn-sm"
-                onClick={() => {
-                  if (typeof window !== 'undefined') {
-                    window.open(fileUrl, '_blank', 'noopener')
-                  }
-                }}
-              >
-                Open Securely
-              </button>
-            </div>
-          )}
+          <SecurePdfViewer src={fileUrl} />
         </div>
         {debug && (
           <DiagnosticsPanel diag={diag} diagStatus={diagStatus} debugOpen={debugOpen} />
