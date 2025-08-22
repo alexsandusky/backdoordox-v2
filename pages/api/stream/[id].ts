@@ -16,7 +16,6 @@ function buildHeaders(filename: string) {
   const name = safe.endsWith('.pdf') ? safe : safe + '.pdf'
   return {
     'Cache-Control': 'no-store',
-    'X-Frame-Options': 'SAMEORIGIN',
     'Referrer-Policy': 'no-referrer',
     'X-Robots-Tag': 'noindex, nofollow',
     'Content-Type': 'application/pdf',
@@ -24,6 +23,8 @@ function buildHeaders(filename: string) {
     'Accept-Ranges': 'bytes',
     'Cross-Origin-Resource-Policy': 'same-origin',
     'Content-Encoding': 'identity',
+    'Content-Security-Policy':
+      'frame-ancestors https://backdoordox-v2.vercel.app https://*.backdoordox-v2.vercel.app;',
   } as Record<string, string>
 }
 
