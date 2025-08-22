@@ -8,7 +8,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<{ email: string } | null>(null)
 
   useEffect(() => {
-    fetch('/api/me')
+    fetch('/api/me', { credentials: 'include' })
       .then(r => (r.ok ? r.json() : null))
       .then(setUser)
       .catch(() => setUser(null))
@@ -19,7 +19,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   )
 
   const logout = async () => {
-    await fetch('/api/auth/logout', { method: 'POST' })
+    await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' })
     window.location.href = '/'
   }
 

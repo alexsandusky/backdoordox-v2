@@ -50,7 +50,7 @@ class ViewerErrorBoundary extends React.Component<
   }
 
   private fetchDiag() {
-    fetch(`/api/stream/meta?id=${this.props.id}`)
+    fetch(`/api/stream/meta?id=${this.props.id}`, { credentials: 'include' })
       .then(async r => {
         const data = (await r.json()) as Diag
         this.setState({ diag: data, diagStatus: r.status })
@@ -106,7 +106,7 @@ function ViewerInner({ id, fileUrl }: { id: string; fileUrl: string }) {
 
   useEffect(() => {
     if (!id) return
-    fetch('/api/get-link?id=' + id)
+    fetch('/api/get-link?id=' + id, { credentials: 'include' })
       .then(r => r.json() as Promise<LinkMeta>)
       .then(setMeta)
       .catch(() => {})
@@ -132,7 +132,12 @@ function ViewerInner({ id, fileUrl }: { id: string; fileUrl: string }) {
       setError(blockedDomain ? 'Personal email domains are not allowed.' : 'Please use your business email address.')
       return
     }
-    await fetch('/api/log-access', { method:'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ linkId: id, email, fingerprint: fp }) })
+    await fetch('/api/log-access', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ linkId: id, email, fingerprint: fp }),
+    })
     setAllowed(true)
   }
 
@@ -170,7 +175,7 @@ function ViewerInner({ id, fileUrl }: { id: string; fileUrl: string }) {
   useEffect(() => {
     if (!allowed) return
     setStreamError('')
-    fetch(fileUrl, { method: 'HEAD' })
+    fetch(fileUrl, { method: 'HEAD', credentials: 'include', headers: { Accept: 'application/pdf' } })
       .then(async r => {
         if (!r.ok) {
           let msg = 'Failed to load document.'
@@ -188,7 +193,7 @@ function ViewerInner({ id, fileUrl }: { id: string; fileUrl: string }) {
 
   useEffect(() => {
     if (!allowed || !debug) return
-    fetch(`/api/stream/meta?id=${id}`)
+    fetch(`/api/stream/meta?id=${id}`, { credentials: 'include' })
       .then(async r => {
         setDiagStatus(r.status)
         const data = (await r.json()) as Diag
@@ -253,7 +258,7 @@ export default function ViewerGate() {
       </div>
     )
   }
-  const fileUrl = `/api/stream/${id}`
+  const fileUrl = `/api/secure/pdf?id=${id}`
   return (
     <ViewerErrorBoundary fileUrl={fileUrl} id={id} debug={debug} debugOpen={debugOpen}>
       <ViewerInner id={id} fileUrl={fileUrl} />

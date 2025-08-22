@@ -9,7 +9,10 @@ export default function Payment() {
 
   async function subscribe() {
     setCheckoutError(null)
-    const res = await fetch('/api/stripe/create-checkout-session', { method: 'POST' })
+    const res = await fetch('/api/stripe/create-checkout-session', {
+      method: 'POST',
+      credentials: 'include',
+    })
     if (!res.ok) {
       const err = await res.json().catch(() => ({}))
       setCheckoutError(err.error || 'Unable to start checkout')
@@ -22,7 +25,10 @@ export default function Payment() {
 
   async function manage() {
     setPortalError(null)
-    const res = await fetch('/api/stripe/create-portal-session', { method: 'POST' })
+    const res = await fetch('/api/stripe/create-portal-session', {
+      method: 'POST',
+      credentials: 'include',
+    })
     if (!res.ok) {
       const err = await res.json().catch(() => ({}))
       setPortalError(err.error || 'Unable to open portal')

@@ -1,4 +1,8 @@
 import { useEffect, useRef } from 'react'
+import * as pdfjsLib from 'pdfjs-dist'
+import 'pdfjs-dist/build/pdf.worker.min.js'
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js'
 
 export default function SecurePdfViewer({ src }: { src: string }) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -10,20 +14,28 @@ export default function SecurePdfViewer({ src }: { src: string }) {
 
     ;(async () => {
       container.innerHTML = ''
-      const pdfjs = await import('pdfjs-dist/legacy/build/pdf')
-      pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`
-
-      const loadingTask = pdfjs.getDocument({ url: src, withCredentials: true })
-      const pdf = await loadingTask.promise
-      for (let pageNum = 1; pageNum <= pdf.numPages && !canceled; pageNum++) {
-        const page = await pdf.getPage(pageNum)
-        const viewport = page.getViewport({ scale: 1.5 })
-        const canvas = document.createElement('canvas')
-        const context = canvas.getContext('2d')
-        canvas.height = viewport.height
-        canvas.width = viewport.width
-        await page.render({ canvasContext: context!, viewport }).promise
-        container.appendChild(canvas)
+      try {
+        const res = await fetch(src, {
+          credentials: 'include',
+          headers: { Accept: 'application/pdf' },
+        })
+        const buf = await res.arrayBuffer()
+        const data = new Uint8Array(buf)
+        const pdf = await pdfjsLib.getDocument({ data }).promise
+        for (let pageNum = 1; pageNum <= pdf.numPages && !canceled; pageNum++) {
+          const page = await pdf.getPage(pageNum)
+          const viewport = page.getViewport({ scale: 1.25 })
+          const canvas = document.createElement('canvas')
+          const context = canvas.getContext('2d')
+          canvas.width = viewport.width
+          canvas.height = viewport.height
+          await page.render({ canvasContext: context!, viewport }).promise
+          container.appendChild(canvas)
+        }
+      } catch (err) {
+        if (!canceled) {
+          console.error(err)
+        }
       }
     })()
 
