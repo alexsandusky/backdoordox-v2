@@ -27,9 +27,20 @@ export default function DiagnosticsPanel({ diag, diagStatus, debugOpen }: { diag
               {typeof diag.hasRange === 'boolean' && <tr><td className="pr-2">hasRange</td><td>{String(diag.hasRange)}</td></tr>}
               {diag.headers && (
                 <>
-                  {['Content-Type','Content-Disposition','Cache-Control','X-Frame-Options','Accept-Ranges','Content-Length'].map(h => (
+                  {['Content-Type','Content-Disposition','Cache-Control','Content-Security-Policy','Accept-Ranges','Content-Length'].map(h => (
                     <tr key={h}><td className="pr-2">{h}</td><td>{diag.headers?.[h]}</td></tr>
                   ))}
+                  {diag.headers?.['Content-Security-Policy'] && (
+                    (() => {
+                      const fa = diag.headers?.['Content-Security-Policy']
+                        ?.split(';')
+                        .map(s => s.trim())
+                        .find(s => s.startsWith('frame-ancestors'))
+                      return fa ? (
+                        <tr><td className="pr-2">frame-ancestors</td><td>{fa.replace('frame-ancestors', '').trim()}</td></tr>
+                      ) : null
+                    })()
+                  )}
                 </>
               )}
               {diag.error && <tr><td className="pr-2">error</td><td className="text-red-600">{diag.error}</td></tr>}
