@@ -1,4 +1,3 @@
-
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/router'
 import useDeviceFingerprint from '../../components/DeviceFingerprint'
@@ -6,19 +5,45 @@ import type { GetServerSideProps } from 'next'
 
 const FREE_DOMAINS = ['gmail.com','yahoo.com','hotmail.com','outlook.com','aol.com','icloud.com','proton.me','protonmail.com','pm.me','zoho.com','gmx.com']
 
+type Diag = {
+  ok: boolean
+  storage?: string
+  filename?: string
+  size?: number
+  hasRange?: boolean
+  headers?: Record<string, string>
+  source?: 'blob' | 'tmp'
+  error?: string
+}
+
 class ViewerErrorBoundary extends React.Component<
-  React.PropsWithChildren<{ fileUrl: string }>,
-  { hasError: boolean }
+  React.PropsWithChildren<{ fileUrl: string; debug?: boolean; debugOpen?: boolean }>,
+  { hasError: boolean; debug: boolean; debugOpen: boolean; diag: Diag | null; diagStatus: number | null }
 > {
-  constructor(props: React.PropsWithChildren<{ fileUrl: string }>) {
+  constructor(props: React.PropsWithChildren<{ fileUrl: string; debug?: boolean; debugOpen?: boolean }>) {
     super(props)
-    this.state = { hasError: false }
+    this.state = { hasError: false, debug: !!props.debug, debugOpen: !!props.debugOpen, diag: null, diagStatus: null }
   }
   static getDerivedStateFromError() {
     return { hasError: true }
   }
   componentDidCatch(error: unknown, errorInfo: React.ErrorInfo) {
     console.error(error, errorInfo)
+    if (this.state.debug) {
+      this.fetchDiagnostics()
+    }
+  }
+  async fetchDiagnostics() {
+    const m = this.props.fileUrl.match(/\/api\/stream\/([^?]+)/)
+    const id = m ? m[1] : ''
+    if (!id) return
+    try {
+      const res = await fetch(`/api/stream/meta?id=${id}`)
+      const data = (await res.json()) as Diag
+      this.setState({ diagStatus: res.status, diag: data })
+    } catch {
+      // ignore
+    }
   }
   render() {
     if (this.state.hasError) {
@@ -47,34 +72,54 @@ class ViewerErrorBoundary extends React.Component<
                 Open Securely
               </button>
             </div>
+            {this.state.debug && (
+              <details className="mt-4 text-xs" open={this.state.debugOpen}>
+                <summary className="cursor-pointer select-none">Diagnostics</summary>
+                {this.state.diag ? (
+                  <div className="mt-2">
+                    <table className="border-collapse text-left">
+                      <tbody>
+                        <tr><td className="pr-2">status</td><td>{this.state.diagStatus ?? 'unknown'}</td></tr>
+                        <tr><td className="pr-2">ok</td><td>{String(this.state.diag.ok)}</td></tr>
+                        {this.state.diag.storage && <tr><td className="pr-2">storage</td><td>{this.state.diag.storage}</td></tr>}
+                        {this.state.diag.filename && <tr><td className="pr-2">filename</td><td>{this.state.diag.filename}</td></tr>}
+                        {typeof this.state.diag.size === 'number' && <tr><td className="pr-2">size</td><td>{this.state.diag.size}</td></tr>}
+                        {typeof this.state.diag.hasRange === 'boolean' && <tr><td className="pr-2">hasRange</td><td>{String(this.state.diag.hasRange)}</td></tr>}
+                        {this.state.diag?.headers && (
+                          <>
+                            {['Content-Type','Content-Disposition','Cache-Control','X-Frame-Options','Accept-Ranges','Content-Length'].map(h => (
+                              <tr key={h}><td className="pr-2">{h}</td><td>{this.state.diag?.headers?.[h]}</td></tr>
+                            ))}
+                          </>
+                        )}
+                        {this.state.diag.error && <tr><td className="pr-2">error</td><td className="text-red-600">{this.state.diag.error}</td></tr>}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="mt-2">Loading…</div>
+                )}
+              </details>
+            )}
           </div>
         </div>
       )
     }
-    return this.props.children
+    const child = React.Children.only(this.props.children) as React.ReactElement<{ debugOpen: boolean }>
+    return React.cloneElement(child, { debugOpen: this.state.debugOpen })
   }
 }
 
-function ViewerInner({ id, fileUrl }: { id: string; fileUrl: string }) {
+function ViewerInner({ id, fileUrl, debugOpen }: { id: string; fileUrl: string; debugOpen: boolean }) {
   const router = useRouter()
   const [email, setEmail] = useState('')
   const [error, setError] = useState('')
   const [allowed, setAllowed] = useState(false)
   type LinkMeta = { filename: string; expiresAt?: number; lender?: string }
-  type Diag = {
-    ok: boolean
-    storage?: string
-    filename?: string
-    size?: number
-    hasRange?: boolean
-    headers?: Record<string, string>
-    source?: 'blob' | 'tmp'
-    error?: string
-  }
   const [meta, setMeta] = useState<LinkMeta | null>(null)
   const [diag, setDiag] = useState<Diag | null>(null)
   const [diagStatus, setDiagStatus] = useState<number | null>(null)
-  const [debugOpen, setDebugOpen] = useState(false)
+  const [debugOpenState, setDebugOpen] = useState(debugOpen)
   const [streamError, setStreamError] = useState('')
   const [streamReady, setStreamReady] = useState(false)
   const [inlineFailed, setInlineFailed] = useState(false)
@@ -88,12 +133,6 @@ function ViewerInner({ id, fileUrl }: { id: string; fileUrl: string }) {
       .then(setMeta)
       .catch(() => {})
   }, [id])
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    const params = new URLSearchParams(window.location.search)
-    setDebugOpen(params.get('debug') === '1')
-  }, [])
 
   const businessDomain = useMemo(() => {
     const m = email.toLowerCase().match(/@([^@]+)$/)
@@ -141,7 +180,7 @@ function ViewerInner({ id, fileUrl }: { id: string; fileUrl: string }) {
           <button onClick={proceed} className="btn btn-primary mt-4">Access Document</button>
         </div>
       </div>
-    )
+  )
 
   useEffect(() => {
     if (!allowed) return
@@ -172,7 +211,6 @@ function ViewerInner({ id, fileUrl }: { id: string; fileUrl: string }) {
       })
       .catch(() => {})
   }, [allowed, id])
-
 
   if (streamError) {
     return (
@@ -248,7 +286,7 @@ function ViewerInner({ id, fileUrl }: { id: string; fileUrl: string }) {
             </div>
           )}
         </div>
-        <details className="mt-3 text-xs" open={debugOpen}>
+        <details className="mt-3 text-xs" open={debugOpenState}>
           <summary className="cursor-pointer select-none">Diagnostics</summary>
           {diag ? (
             <div className="mt-2">
@@ -296,9 +334,10 @@ export default function ViewerGate() {
     )
   }
   const fileUrl = `/api/stream/${id}`
+  const debug = router.query.debug === '1'
   return (
-    <ViewerErrorBoundary fileUrl={fileUrl}>
-      <ViewerInner id={id} fileUrl={fileUrl} />
+    <ViewerErrorBoundary fileUrl={fileUrl} debug={debug} debugOpen={debug}>
+      <ViewerInner id={id} fileUrl={fileUrl} debugOpen={debug} />
     </ViewerErrorBoundary>
   )
 }
@@ -311,3 +350,4 @@ export const getServerSideProps: GetServerSideProps = async ({ res }) => {
   res.setHeader('Content-Security-Policy', "frame-ancestors 'self'")
   return { props: {} }
 }
+
