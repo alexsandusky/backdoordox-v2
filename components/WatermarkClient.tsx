@@ -164,7 +164,11 @@ export default function WatermarkClient() {
       new Blob([bytes], { type: 'application/pdf' }),
       queue[0].file.name.replace(/\.pdf$/i, '') + '_watermarked.pdf'
     )
-    const upload = await fetch('/api/upload', { method: 'POST', body: form })
+    const upload = await fetch('/api/upload', {
+      method: 'POST',
+      credentials: 'include',
+      body: form,
+    })
     if (!upload.ok) {
       let message = 'Upload failed'
       try {

@@ -6,7 +6,8 @@ import useSWR from 'swr'
 import type { GetServerSideProps } from 'next'
 import { getUserFromRequest } from '../lib/auth'
 
-const fetcher = (url: string) => fetch(url).then(r => r.json())
+const fetcher = (url: string) =>
+  fetch(url, { credentials: 'include' }).then(r => r.json())
 
 function RiskBadge({ score }: { score: number }) {
   const label = score >= 3 ? 'High' : score == 2 ? 'Elevated' : score == 1 ? 'Mild' : 'Low'

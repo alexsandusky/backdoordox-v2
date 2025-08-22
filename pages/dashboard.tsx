@@ -11,7 +11,7 @@ export default function Home() {
   const [me, setMe] = useState<Me | null>(null)
 
   useEffect(() => {
-    fetch('/api/me').then(async res => {
+    fetch('/api/me', { credentials: 'include' }).then(async res => {
       if (res.status === 401) {
         window.location.href = '/login'
         return

@@ -25,6 +25,7 @@ export default function Login() {
     setDevLink('')
     const res = await fetch(`/api/auth/${mode}`, {
       method: 'POST',
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password })
     })
@@ -53,6 +54,7 @@ export default function Login() {
     setResendMsg('')
     const res = await fetch('/api/auth/resend-confirmation', {
       method: 'POST',
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email })
     })
