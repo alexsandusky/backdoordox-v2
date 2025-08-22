@@ -6,8 +6,12 @@ const nextConfig = {
     {
       source: "/view/:path*",
       headers: [
-        { key: "X-Frame-Options", value: "SAMEORIGIN" },
         { key: "Referrer-Policy", value: "no-referrer" },
+        {
+          key: "Content-Security-Policy",
+          value:
+            "frame-ancestors https://backdoordox-v2.vercel.app https://*.backdoordox-v2.vercel.app;",
+        },
       ],
     },
   ]),

@@ -321,9 +321,11 @@ export default function ViewerGate() {
 
 export const getServerSideProps: GetServerSideProps = async ({ res }) => {
   res.setHeader('Cache-Control', 'no-store')
-  res.setHeader('X-Frame-Options', 'SAMEORIGIN')
   res.setHeader('Referrer-Policy', 'no-referrer')
   res.setHeader('X-Robots-Tag', 'noindex, nofollow')
-  res.setHeader('Content-Security-Policy', "frame-ancestors 'self'")
+  res.setHeader(
+    'Content-Security-Policy',
+    'frame-ancestors https://backdoordox-v2.vercel.app https://*.backdoordox-v2.vercel.app;'
+  )
   return { props: {} }
 }
